@@ -115,10 +115,54 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Listen for message events (e.g., skipWaiting)
+// Background Timer & Alert Scheduler
+let activePomoTimeout = null;
+
+// Listen for message events (skipWaiting, background timer scheduling)
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
+  if (!event.data) return;
+
+  if (event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
+  }
+
+  if (event.data.type === 'SCHEDULE_POMO_ALERT') {
+    if (activePomoTimeout) {
+      clearTimeout(activePomoTimeout);
+      activePomoTimeout = null;
+    }
+
+    const targetTime = event.data.targetTimestamp;
+    const now = Date.now();
+    const delay = Math.max(0, targetTime - now);
+
+    activePomoTimeout = setTimeout(() => {
+      self.registration.showNotification(
+        event.data.title || '🎉 Focus Session Finished!',
+        {
+          body:
+            event.data.body ||
+            'Great job! You completed your focus session. Time for a break.',
+          icon: './icon-192.png',
+          badge: './icon-192.png',
+          tag: 'ticktick-pomo-complete',
+          renotify: true,
+          vibrate: [200, 100, 200, 100, 400],
+          data: {
+            url: './',
+          },
+        }
+      );
+      activePomoTimeout = null;
+    }, delay);
+  }
+
+  if (event.data.type === 'CANCEL_POMO_ALERT') {
+    if (activePomoTimeout) {
+      clearTimeout(activePomoTimeout);
+      activePomoTimeout = null;
+    }
   }
 });
 
