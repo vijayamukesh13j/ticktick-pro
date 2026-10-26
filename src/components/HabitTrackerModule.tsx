@@ -250,7 +250,7 @@ export const HabitTrackerModule: React.FC = () => {
 
         {/* Mobile Native Checklist for Today */}
         {mobileHabitView === 'today' && (
-          <div className="md:hidden space-y-3">
+          <div className="md:hidden space-y-3 animate-view-switch">
             {sections.map((sec) => {
               const secHabits = habits.filter((h) => h.section === sec.id);
               if (secHabits.length === 0) return null;
@@ -271,8 +271,8 @@ export const HabitTrackerModule: React.FC = () => {
                       <div
                         key={habit.id}
                         onClick={() => setSelectedHabitId(habit.id)}
-                        className={`surface-card rounded-xl p-3 flex items-center justify-between gap-3 border ${
-                          isSelected ? 'border-zinc-900' : 'border-zinc-200/80'
+                        className={`surface-card rounded-xl p-3 flex items-center justify-between gap-3 border transition-all duration-150 ${
+                          isSelected ? 'border-zinc-900 shadow-xs' : 'border-zinc-200/80'
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -345,19 +345,24 @@ export const HabitTrackerModule: React.FC = () => {
           </div>
         )}
 
-        {/* 7-Day Column Header & Matrix (Fixed left habit column + Horizontally scrollable dates section) */}
+        {/* 7-Day Column Header & Matrix (Clean Fixed Left Habit Column + Sliding Right Dates Section) */}
         <div
           className={`${
-            mobileHabitView === 'matrix' ? 'flex' : 'hidden md:flex'
-          } surface-card rounded-xl overflow-hidden`}
+            mobileHabitView === 'matrix' ? 'flex animate-view-switch' : 'hidden md:flex'
+          } surface-card rounded-2xl overflow-hidden border border-zinc-200/80`}
         >
           {/* Left Fixed Habit Column (Never scrolls horizontally) */}
           <div
             data-testid="habit-weekly-left-column"
-            className="w-[156px] sm:w-[210px] md:flex-1 shrink-0 border-r border-zinc-200/80 bg-white select-none"
+            className="w-[148px] sm:w-[220px] md:flex-1 shrink-0 border-r border-zinc-100 bg-white select-none z-10 shadow-[6px_0_16px_-10px_rgba(9,9,11,0.07)] sm:shadow-none"
           >
-            <div className="h-12 px-3 sm:px-4 flex items-center bg-zinc-50 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
-              Habit & Daily Goal
+            <div className="h-[52px] px-3 sm:px-4 flex items-center justify-between bg-zinc-50/70 border-b border-zinc-100">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Habits
+              </span>
+              <span className="text-[10px] font-mono-num font-medium text-zinc-400 bg-zinc-200/60 px-1.5 py-0.5 rounded-md">
+                {habits.length}
+              </span>
             </div>
 
             <div>
@@ -367,8 +372,7 @@ export const HabitTrackerModule: React.FC = () => {
 
                 return (
                   <div key={sec.id}>
-                    <div className="h-7 px-3 sm:px-4 bg-zinc-50/80 border-b border-zinc-100 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                      <UiIcon name={sec.iconKey} className="w-3 h-3 text-zinc-400 shrink-0" />
+                    <div className="h-6 px-3 sm:px-4 bg-zinc-50/60 border-b border-zinc-100/80 text-[9px] font-semibold uppercase tracking-widest text-zinc-400 flex items-center">
                       <span className="truncate">{sec.label}</span>
                     </div>
                     {secHabits.map((habit) => {
@@ -379,28 +383,30 @@ export const HabitTrackerModule: React.FC = () => {
                         <div
                           key={habit.id}
                           onClick={() => setSelectedHabitId(habit.id)}
-                          className={`h-[56px] px-3 sm:px-4 flex items-center gap-2.5 border-b border-zinc-100 cursor-pointer transition-colors ${
-                            isSelected ? 'bg-zinc-900/[0.03]' : 'hover:bg-zinc-50/70'
+                          className={`h-[52px] px-2.5 sm:px-4 flex items-center gap-2 sm:gap-3 border-b border-zinc-100/80 cursor-pointer transition-colors duration-150 ${
+                            isSelected ? 'bg-blue-50/40' : 'hover:bg-zinc-50/80'
                           }`}
                         >
                           <span
-                            style={{ backgroundColor: `${habit.color}15`, color: habit.color }}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 border border-black/[0.04]"
+                            style={{ backgroundColor: `${habit.color}14`, color: habit.color }}
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center shrink-0"
                           >
-                            <UiIcon name={habit.icon} className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <UiIcon name={habit.icon} className="w-3.5 h-3.5" />
                           </span>
                           <div className="min-w-0 flex-1">
-                            <div className="text-xs font-semibold text-zinc-900 truncate flex items-center gap-1">
-                              <span className="truncate">{habit.name}</span>
-                              <span className="inline-flex items-center gap-0.5 text-[10px] font-mono-num font-semibold text-orange-500 shrink-0">
-                                <Flame className="w-3 h-3 fill-orange-500" />
+                            <div className="text-[12px] font-medium text-zinc-900 truncate leading-snug">
+                              {habit.name}
+                            </div>
+                            <div className="text-[10px] text-zinc-400 truncate font-mono-num flex items-center gap-1 leading-none mt-0.5">
+                              <span className="inline-flex items-center gap-0.5 text-orange-500 font-medium shrink-0">
+                                <Flame className="w-2.5 h-2.5 fill-orange-500" />
                                 {streak}d
                               </span>
-                            </div>
-                            <div className="text-[10px] text-zinc-400 truncate font-mono-num">
-                              {habit.goalType === 'quantified'
-                                ? `Goal: ${habit.targetValue} ${habit.unit}/day`
-                                : habit.quote}
+                              {habit.goalType === 'quantified' && (
+                                <span className="truncate text-zinc-400">
+                                  · {habit.targetValue} {habit.unit}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -416,10 +422,10 @@ export const HabitTrackerModule: React.FC = () => {
           <div
             ref={matrixScrollRef}
             data-testid="habit-weekly-dates-scroll"
-            className="overflow-x-auto flex-1 md:flex-none touch-pan-x"
+            className="overflow-x-auto flex-1 md:flex-none touch-pan-x no-scrollbar"
           >
-            <div className="min-w-[308px] sm:min-w-[324px]">
-              <div className="h-12 grid grid-cols-[repeat(6,42px)_56px] sm:grid-cols-[repeat(6,44px)_60px] items-center bg-zinc-50 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
+            <div className="min-w-[316px] sm:min-w-[336px]">
+              <div className="h-[52px] grid grid-cols-[repeat(6,44px)_52px] sm:grid-cols-[repeat(6,46px)_60px] items-center bg-zinc-50/70 border-b border-zinc-100 text-[11px] font-medium text-zinc-500">
                 {last7Days.map((d) => {
                   const dStr = format(d, 'yyyy-MM-dd');
                   const isTodayCol = dStr === todayStr;
@@ -429,14 +435,26 @@ export const HabitTrackerModule: React.FC = () => {
                       data-testid={isTodayCol ? 'habit-weekly-today-header' : undefined}
                       className={`text-center ${
                         isTodayCol
-                          ? 'bg-blue-600 text-white rounded-lg py-1 px-1 mx-1 shadow-2xs font-bold ring-2 ring-blue-500/20'
+                          ? 'bg-blue-600 text-white rounded-xl py-1 px-1 mx-1 shadow-2xs font-bold'
                           : ''
                       }`}
                     >
-                      <div className={isTodayCol ? 'text-[9px] uppercase tracking-wider' : ''}>
+                      <div
+                        className={
+                          isTodayCol
+                            ? 'text-[8px] uppercase tracking-wider opacity-90'
+                            : 'text-[9px] uppercase tracking-wider text-zinc-400'
+                        }
+                      >
                         {isTodayCol ? 'Today' : format(d, 'EEE')}
                       </div>
-                      <div className="font-mono-num text-[10px]">{format(d, 'd')}</div>
+                      <div
+                        className={`font-mono-num text-[11px] leading-tight mt-0.5 ${
+                          isTodayCol ? 'font-bold text-white' : 'font-semibold text-zinc-700'
+                        }`}
+                      >
+                        {format(d, 'd')}
+                      </div>
                     </div>
                   );
                 })}
@@ -444,17 +462,13 @@ export const HabitTrackerModule: React.FC = () => {
 
               {/* Grouped by Time of Day — Date Rows */}
               <div>
-                {sections.map((sec, secIdx) => {
+                {sections.map((sec) => {
                   const secHabits = habits.filter((h) => h.section === sec.id);
                   if (secHabits.length === 0) return null;
 
                   return (
                     <div key={sec.id}>
-                      <div className="h-7 bg-zinc-50/80 border-b border-zinc-100 flex items-center justify-end pr-2.5 text-[9px] font-medium text-zinc-400">
-                        {secIdx === 0 && (
-                          <span className="sm:hidden">← slide dates →</span>
-                        )}
-                      </div>
+                      <div className="h-6 bg-zinc-50/60 border-b border-zinc-100/80" />
                       {secHabits.map((habit) => {
                         const isSelected = selectedHabit?.id === habit.id;
 
@@ -462,8 +476,8 @@ export const HabitTrackerModule: React.FC = () => {
                           <div
                             key={habit.id}
                             onClick={() => setSelectedHabitId(habit.id)}
-                            className={`h-[56px] grid grid-cols-[repeat(6,42px)_56px] sm:grid-cols-[repeat(6,44px)_60px] items-stretch border-b border-zinc-100 cursor-pointer transition-colors ${
-                              isSelected ? 'bg-zinc-900/[0.03]' : 'hover:bg-zinc-50/70'
+                            className={`h-[52px] grid grid-cols-[repeat(6,44px)_52px] sm:grid-cols-[repeat(6,46px)_60px] items-stretch border-b border-zinc-100/80 cursor-pointer transition-colors duration-150 ${
+                              isSelected ? 'bg-blue-50/40' : 'hover:bg-zinc-50/80'
                             }`}
                           >
                             {last7Days.map((d) => {
@@ -482,9 +496,7 @@ export const HabitTrackerModule: React.FC = () => {
                                 <div
                                   key={dStr}
                                   className={`flex items-center justify-center ${
-                                    isTodayCol
-                                      ? 'bg-blue-50/60 border-l border-blue-200/60'
-                                      : ''
+                                    isTodayCol ? 'bg-blue-50/35' : ''
                                   }`}
                                 >
                                   <button
@@ -502,21 +514,19 @@ export const HabitTrackerModule: React.FC = () => {
                                       backgroundColor: isCompleted
                                         ? habit.color
                                         : partialPct > 0
-                                          ? `${habit.color}26`
+                                          ? `${habit.color}22`
                                           : undefined,
                                       borderColor:
                                         isCompleted || partialPct > 0 ? habit.color : undefined,
                                     }}
-                                    className={`${
-                                      isTodayCol ? 'w-8 h-8 ring-2 ring-blue-500/20' : 'w-7 h-7'
-                                    } rounded-full border flex items-center justify-center text-[10px] font-mono-num font-bold ${
+                                    className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-mono-num font-bold transition-all duration-150 ${
                                       isCompleted
-                                        ? 'text-white'
+                                        ? 'text-white shadow-2xs'
                                         : partialPct > 0
                                           ? 'text-zinc-900'
                                           : isTodayCol
-                                            ? 'border-blue-400 bg-white hover:border-blue-600 text-zinc-400'
-                                            : 'border-zinc-200 hover:border-zinc-400 text-zinc-300'
+                                            ? 'border-blue-400/80 bg-white hover:border-blue-600 text-zinc-400'
+                                            : 'border-zinc-200/90 hover:border-zinc-400 text-zinc-300'
                                     }`}
                                   >
                                     {isCompleted ? (

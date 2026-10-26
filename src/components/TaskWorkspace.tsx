@@ -959,7 +959,10 @@ export const TaskWorkspace: React.FC = () => {
       )}
 
       {/* Main Content Area: List / Kanban / Timeline */}
-      <div className="flex-1 overflow-y-auto px-4 py-2">
+      <div
+        key={`${sidebarSelection.kind}-${sidebarSelection.id}-${viewMode}`}
+        className="flex-1 overflow-y-auto px-4 py-2 animate-view-switch"
+      >
         {viewMode === 'list' && (
           <div className="space-y-4 pb-8">
             {/* Collapsible Countdown Section in Today View (matching Screenshot 3) */}
@@ -984,14 +987,14 @@ export const TaskWorkspace: React.FC = () => {
                   </button>
 
                   {!isCountdownCollapsed && (
-                    <div className="space-y-1">
+                    <div className="space-y-1 animate-section-expand">
                       {countdowns.map((cd) => {
                         const diffDays = differenceInCalendarDays(parseISO(cd.targetDate), today);
                         return (
                           <div
                             key={cd.id}
                             onClick={() => setActiveModule('countdown')}
-                            className="flex items-center justify-between px-3 py-2 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-200/70 text-xs cursor-pointer"
+                            className="flex items-center justify-between px-3 py-2 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-200/70 text-xs cursor-pointer transition-colors"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <span
@@ -1066,7 +1069,7 @@ export const TaskWorkspace: React.FC = () => {
                   </button>
                 </div>
                 {!isOverdueCollapsed && (
-                  <div className="space-y-1">{overdueTasks.map(renderTaskRow)}</div>
+                  <div className="space-y-1 animate-section-expand">{overdueTasks.map(renderTaskRow)}</div>
                 )}
               </section>
             )}
@@ -1101,7 +1104,7 @@ export const TaskWorkspace: React.FC = () => {
               overdueTasks.length === 0 &&
               pinnedTasks.length === 0 &&
               doneTasks.length === 0 ? (
-                <div className="text-center py-16">
+                <div className="text-center py-16 animate-view-switch">
                   <div className="w-10 h-10 rounded-xl bg-zinc-100 text-zinc-500 flex items-center justify-center mx-auto mb-3 border border-zinc-200/80">
                     <Check className="w-5 h-5" strokeWidth={1.75} />
                   </div>
@@ -1112,7 +1115,7 @@ export const TaskWorkspace: React.FC = () => {
                 </div>
               ) : (
                 !isActiveSectionCollapsed && (
-                  <div className="space-y-1">{openTasks.map(renderTaskRow)}</div>
+                  <div className="space-y-1 animate-section-expand">{openTasks.map(renderTaskRow)}</div>
                 )
               )}
             </section>
@@ -1136,7 +1139,7 @@ export const TaskWorkspace: React.FC = () => {
                   </span>
                 </button>
                 {!isCompletedCollapsed && (
-                  <div className="space-y-1">{doneTasks.map(renderTaskRow)}</div>
+                  <div className="space-y-1 animate-section-expand">{doneTasks.map(renderTaskRow)}</div>
                 )}
               </section>
             )}

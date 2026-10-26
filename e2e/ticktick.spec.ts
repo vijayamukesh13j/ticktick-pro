@@ -220,8 +220,14 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
       await firstTask.click();
       const closeDetailBtn = page.locator('button[aria-label="Close Detail Pane"]');
       await expect(closeDetailBtn).toBeVisible();
-      await closeDetailBtn.click();
+      // Verify mobile Go Back (popstate) closes the TaskDetailPane bottom sheet without leaving the app
+      await page.goBack();
       await expect(page.locator('aside[aria-label="Task Detail Inspector"]')).toHaveCount(0);
+
+      // Verify mobile left-edge swipe handle opens the left navigation sidebar
+      await page.getByTestId('mobile-left-edge-swipe-zone').click();
+      await expect(sidebar).toBeVisible();
+      await page.locator('button[aria-label="Close Sidebar"]').click();
 
       // Navigate via Mobile Bottom Bar: Calendar
       await mobileNav.locator('button[aria-label="Calendar (5 Views)"]').click();

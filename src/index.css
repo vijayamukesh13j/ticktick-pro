@@ -165,6 +165,61 @@ button:not(:disabled):active,
   }
 }
 
+@keyframes emil-module-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.992);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes emil-view-switch {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes emil-inspector-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(16px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes emil-row-enter {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes emil-section-expand {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 .animate-popover {
   animation: emil-popover-in 180ms var(--ease-out-quint) forwards;
   transform-origin: top right;
@@ -184,6 +239,29 @@ button:not(:disabled):active,
 .animate-drawer-left {
   animation: vaul-drawer-left 220ms var(--ease-out-quint) forwards;
   will-change: transform, opacity;
+}
+
+.animate-module-enter {
+  animation: emil-module-enter 220ms var(--ease-out-quint) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-view-switch {
+  animation: emil-view-switch 180ms var(--ease-out-quint) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-inspector-in {
+  animation: emil-inspector-in 200ms var(--ease-out-quint) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-row-enter {
+  animation: emil-row-enter 160ms var(--ease-out-quart) forwards;
+}
+
+.animate-section-expand {
+  animation: emil-section-expand 160ms var(--ease-out-quart) forwards;
 }
 
 .animate-backdrop {
@@ -208,6 +286,10 @@ button:not(:disabled):active,
   background-color: var(--surface-card);
   border: 1px solid var(--border-hairline);
   box-shadow: 0 1px 2px 0 rgba(9, 9, 11, 0.03);
+  transition:
+    box-shadow 180ms var(--ease-out-quart),
+    border-color 180ms var(--ease-out-quart),
+    transform 180ms var(--ease-out-quart);
 }
 
 .surface-floating {

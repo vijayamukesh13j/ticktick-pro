@@ -293,9 +293,39 @@ export const TaskDetailPane: React.FC = () => {
 
       <aside
         aria-label="Task Detail Inspector"
+        onTouchStart={(e) => {
+          if (e.touches.length === 1) {
+            (e.currentTarget as HTMLElement).dataset.touchX = String(e.touches[0].clientX);
+            (e.currentTarget as HTMLElement).dataset.touchY = String(e.touches[0].clientY);
+          }
+        }}
+        onTouchEnd={(e) => {
+          const el = e.currentTarget as HTMLElement;
+          const startX = Number(el.dataset.touchX || 0);
+          const startY = Number(el.dataset.touchY || 0);
+          if (!startX && !startY) return;
+          const endX = e.changedTouches[0]?.clientX ?? startX;
+          const endY = e.changedTouches[0]?.clientY ?? startY;
+          const deltaX = endX - startX;
+          const deltaY = endY - startY;
+          // Swipe right from left side (Go Back) or swipe down from top header to dismiss on mobile
+          if (
+            (deltaX > 65 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4 && startX <= 120) ||
+            (deltaY > 75 && Math.abs(deltaY) > Math.abs(deltaX) * 1.4 && startY <= 120)
+          ) {
+            setSelectedTaskId(null);
+          }
+        }}
         style={{ '--right-pane-width': `${rightPaneWidth}px` } as React.CSSProperties}
-        className="fixed inset-x-0 bottom-0 top-6 sm:top-10 z-50 rounded-t-2xl shadow-2xl bg-white flex flex-col overflow-hidden animate-sheet-up lg:static lg:top-auto lg:z-10 lg:w-[var(--right-pane-width)] lg:h-full lg:rounded-none lg:shadow-none lg:border-t-0 lg:border-l border-zinc-200/80 lg:animate-none"
+        className="fixed inset-x-0 bottom-0 top-6 sm:top-10 z-50 rounded-t-2xl shadow-2xl bg-white flex flex-col overflow-hidden animate-sheet-up lg:static lg:top-auto lg:z-10 lg:w-[var(--right-pane-width)] lg:h-full lg:rounded-none lg:shadow-none lg:border-t-0 lg:border-l border-zinc-200/80 lg:animate-inspector-in"
       >
+        {/* Mobile Top Drag Pill Handle */}
+        <div
+          onClick={() => setSelectedTaskId(null)}
+          className="lg:hidden w-full pt-2 pb-0.5 flex items-center justify-center bg-white shrink-0 cursor-pointer"
+        >
+          <span className="w-9 h-1 rounded-full bg-zinc-300/80" />
+        </div>
         {/* PC Left-Edge Drag Resize Handle */}
         <div
           onMouseDown={handleMouseDownResize}

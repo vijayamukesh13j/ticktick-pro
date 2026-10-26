@@ -292,7 +292,10 @@ export const CalendarModule: React.FC = () => {
         {/* Calendar Body + Optional Unscheduled Drawer */}
         <div className="flex-1 flex min-h-0 overflow-hidden">
           {/* Main Calendar Grid */}
-          <div className="flex-1 overflow-y-auto">
+          <div
+            key={`${subView}-${format(cursorDate, 'yyyy-MM-dd')}`}
+            className="flex-1 overflow-y-auto animate-view-switch"
+          >
             {subView === 'month' && (
               <div className="flex flex-col h-full min-h-[620px]">
                 <div className="grid grid-cols-7 border-b border-zinc-200/80 bg-zinc-50/80 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
