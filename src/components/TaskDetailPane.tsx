@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Activity,
   Bell,
@@ -12,6 +12,7 @@ import {
   Copy,
   FileText,
   Flag,
+  FolderInput,
   Hash,
   Mail,
   MapPin,
@@ -28,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Priority, Task } from '../types';
+import { parseNaturalLanguageTask } from '../utils/nlpParser';
 
 interface TaskDraft {
   title: string;
@@ -76,6 +78,7 @@ export const TaskDetailPane: React.FC = () => {
     tasks,
     lists,
     tags,
+    addList,
     addTag,
     selectedTaskId,
     setSelectedTaskId,
@@ -110,6 +113,10 @@ export const TaskDetailPane: React.FC = () => {
   const [showFocusMenu, setShowFocusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
   const [tagSearchInput, setTagSearchInput] = useState('');
+  const [newListInput, setNewListInput] = useState('');
+  const [titleAutoIndex, setTitleAutoIndex] = useState(0);
+  const [titleAutoDismissed, setTitleAutoDismissed] = useState(false);
+  const [titleAutoNavigated, setTitleAutoNavigated] = useState(false);
   const [draft, setDraft] = useState<TaskDraft | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [isSavedNotice, setIsSavedNotice] = useState(false);
@@ -142,6 +149,8 @@ export const TaskDetailPane: React.FC = () => {
       setDraft(getInitialDraft(task));
       setActiveTaskId(task.id);
       setIsSavedNotice(false);
+      setTitleAutoDismissed(true);
+      setTitleAutoNavigated(false);
     } else {
       setDraft(null);
       setActiveTaskId(null);
@@ -177,6 +186,150 @@ export const TaskDetailPane: React.FC = () => {
 
   const currentDraft = draft && task && activeTaskId === task.id ? draft : task ? getInitialDraft(task) : null;
 
+  // Autocomplete for Lists & Tags (and creating new tags/lists) while editing the task name in the sidebar
+  const titleAutocompleteData = useMemo(() => {
+    if (titleAutoDismissed || !currentDraft || !task) return null;
+    if (currentDraft.title === task.title) return null;
+
+    const trailingMatch = currentDraft.title.match(/(?:^|\s)([^\s]+)$/);
+    if (!trailingMatch) return null;
+
+    const rawToken = trailingMatch[1];
+    const tokenStartIndex = currentDraft.title.length - rawToken.length;
+    const isExplicitTag = rawToken.startsWith('#');
+    const isExplicitList = rawToken.startsWith('~') || rawToken.startsWith('^');
+    const rawClean = rawToken.replace(/^[#~^]+/, '');
+    const cleanQuery = rawClean.toLowerCase();
+
+    if (!isExplicitTag && !isExplicitList && cleanQuery.length < 2) {
+      return null;
+    }
+
+    type TitleSuggestionItem = {
+      kind: 'list' | 'tag' | 'create-tag' | 'create-list';
+      id: string;
+      name: string;
+      color: string;
+    };
+
+    const items: TitleSuggestionItem[] = [];
+
+    if (!isExplicitTag) {
+      const matchingLists = lists.filter((l) =>
+        cleanQuery.length === 0 ? true : l.name.toLowerCase().includes(cleanQuery)
+      );
+      for (const l of matchingLists.slice(0, 4)) {
+        items.push({
+          kind: 'list',
+          id: l.id,
+          name: l.name,
+          color: l.color,
+        });
+      }
+      if (
+        isExplicitList &&
+        rawClean.length >= 1 &&
+        !lists.some((l) => l.name.toLowerCase() === cleanQuery)
+      ) {
+        items.push({
+          kind: 'create-list',
+          id: `new-list-${cleanQuery}`,
+          name: rawClean,
+          color: '#2563eb',
+        });
+      }
+    }
+
+    if (!isExplicitList) {
+      const matchingTags = tags.filter((t) =>
+        cleanQuery.length === 0 ? true : t.name.toLowerCase().includes(cleanQuery)
+      );
+      for (const tg of matchingTags.slice(0, 5)) {
+        items.push({
+          kind: 'tag',
+          id: tg.id,
+          name: tg.name,
+          color: tg.color,
+        });
+      }
+      if (
+        isExplicitTag &&
+        cleanQuery.length >= 1 &&
+        !tags.some((t) => t.name.toLowerCase() === cleanQuery)
+      ) {
+        items.push({
+          kind: 'create-tag',
+          id: `new-tag-${cleanQuery}`,
+          name: cleanQuery,
+          color: '#2563eb',
+        });
+      }
+    }
+
+    if (items.length === 0) return null;
+
+    return {
+      rawToken,
+      tokenStartIndex,
+      items,
+    };
+  }, [currentDraft, task, lists, tags, titleAutoDismissed]);
+
+  const applyTitleAutocomplete = (item: {
+    kind: 'list' | 'tag' | 'create-tag' | 'create-list';
+    id: string;
+    name: string;
+    color: string;
+  }) => {
+    if (!titleAutocompleteData || !currentDraft || !task) return;
+    const cleanedTitle = currentDraft.title
+      .slice(0, titleAutocompleteData.tokenStartIndex)
+      .trimEnd();
+
+    if (item.kind === 'list') {
+      setDraft((d) => ({
+        ...(d || getInitialDraft(task)),
+        title: cleanedTitle || currentDraft.title,
+        listId: item.id,
+      }));
+    } else if (item.kind === 'create-list') {
+      const created = addList(item.name, item.color);
+      setDraft((d) => ({
+        ...(d || getInitialDraft(task)),
+        title: cleanedTitle || currentDraft.title,
+        listId: created.id,
+      }));
+    } else if (item.kind === 'tag') {
+      setDraft((d) => {
+        const base = d || getInitialDraft(task);
+        const nextTags = base.tags.includes(item.name)
+          ? base.tags
+          : [...base.tags, item.name];
+        return {
+          ...base,
+          title: cleanedTitle || currentDraft.title,
+          tags: nextTags,
+        };
+      });
+    } else if (item.kind === 'create-tag') {
+      addTag(item.name, item.color);
+      setDraft((d) => {
+        const base = d || getInitialDraft(task);
+        const nextTags = base.tags.includes(item.name)
+          ? base.tags
+          : [...base.tags, item.name];
+        return {
+          ...base,
+          title: cleanedTitle || currentDraft.title,
+          tags: nextTags,
+        };
+      });
+    }
+    setTitleAutoIndex(0);
+    setTitleAutoDismissed(true);
+    setTitleAutoNavigated(false);
+  };
+
   const isDirty = Boolean(
     task &&
       currentDraft &&
@@ -210,13 +363,54 @@ export const TaskDetailPane: React.FC = () => {
     const resolvedStartDate =
       currentDraft.startDate || (currentDraft.recurrenceRule ? resolvedDueDate : undefined);
 
+    // Parse edited title for any inline #tags or ~listName so editing a saved task name can also assign lists or new tags!
+    const parsedFromTitle = parseNaturalLanguageTask(currentDraft.title);
+    let resolvedTitle = currentDraft.title.trim() || 'Untitled Task';
+    let resolvedListId = currentDraft.listId;
+    let resolvedTags = [...currentDraft.tags];
+
+    if (parsedFromTitle.tags.length > 0 || parsedFromTitle.listName) {
+      resolvedTitle = parsedFromTitle.cleanTitle || resolvedTitle;
+    }
+
+    if (parsedFromTitle.tags.length > 0) {
+      parsedFromTitle.tags.forEach((tg) => {
+        const cleanTg = tg.toLowerCase();
+        if (!tags.some((existing) => existing.name.toLowerCase() === cleanTg)) {
+          addTag(cleanTg, '#2563eb');
+        }
+        if (!resolvedTags.includes(cleanTg)) {
+          resolvedTags.push(cleanTg);
+        }
+      });
+    }
+
+    if (parsedFromTitle.listName) {
+      const matchedList = lists.find((l) =>
+        l.name.toLowerCase().includes(parsedFromTitle.listName!.toLowerCase())
+      );
+      if (matchedList) {
+        resolvedListId = matchedList.id;
+      } else {
+        const createdList = addList(parsedFromTitle.listName, '#2563eb');
+        resolvedListId = createdList.id;
+      }
+    }
+
+    setDraft((d) => ({
+      ...(d || getInitialDraft(task)),
+      title: resolvedTitle,
+      listId: resolvedListId,
+      tags: resolvedTags,
+    }));
+
     updateTask(
       task.id,
       {
-        title: currentDraft.title.trim() || 'Untitled Task',
+        title: resolvedTitle,
         content: currentDraft.content,
         priority: currentDraft.priority,
-        listId: currentDraft.listId,
+        listId: resolvedListId,
         startDate: resolvedStartDate,
         dueDate: resolvedDueDate,
         startTime: currentDraft.startTime || undefined,
@@ -233,11 +427,12 @@ export const TaskDetailPane: React.FC = () => {
         constantReminder: currentDraft.constantReminder,
         emailReminder: currentDraft.emailReminder,
         locationReminder: currentDraft.locationReminder || undefined,
-        tags: currentDraft.tags,
+        tags: resolvedTags,
         isNote: currentDraft.isNote,
       },
       'Saved task changes'
     );
+    setTitleAutoDismissed(true);
     setIsSavedNotice(true);
     setTimeout(() => setIsSavedNotice(false), 2000);
   };
@@ -363,12 +558,14 @@ export const TaskDetailPane: React.FC = () => {
             <select
               aria-label="Task List"
               value={currentDraft.listId}
-              onChange={(e) =>
+              onChange={(e) => {
+                const nextListId = e.target.value;
                 setDraft((d) => ({
                   ...(d || getInitialDraft(task)),
-                  listId: e.target.value,
-                }))
-              }
+                  listId: nextListId,
+                }));
+                updateTask(task.id, { listId: nextListId }, 'Moved task to list');
+              }}
               className="text-xs font-medium text-zinc-700 bg-zinc-100 px-2 py-1 rounded-md border border-zinc-200/70 focus:outline-none min-w-0 max-w-[130px] flex-shrink truncate cursor-pointer hover:bg-zinc-200/60 transition-colors"
             >
               <option value="inbox">Inbox</option>
@@ -511,19 +708,139 @@ export const TaskDetailPane: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))] space-y-5">
           {/* Title & Focus Pomo Button */}
           <div className="space-y-2.5">
-            <input
-              type="text"
-              value={currentDraft.title}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...(d || getInitialDraft(task)),
-                  title: e.target.value,
-                }))
-              }
-              className={`w-full text-sm font-semibold focus:outline-none tracking-tight ${
-                isDone ? 'text-zinc-400' : 'text-zinc-900'
-              }`}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                value={currentDraft.title}
+                onChange={(e) => {
+                  setDraft((d) => ({
+                    ...(d || getInitialDraft(task)),
+                    title: e.target.value,
+                  }));
+                  setTitleAutoIndex(0);
+                  setTitleAutoDismissed(false);
+                  setTitleAutoNavigated(false);
+                }}
+                onKeyDown={(e) => {
+                  if (titleAutocompleteData && titleAutocompleteData.items.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setTitleAutoNavigated(true);
+                      setTitleAutoIndex(
+                        (prev) => (prev + 1) % titleAutocompleteData.items.length
+                      );
+                      return;
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setTitleAutoNavigated(true);
+                      setTitleAutoIndex(
+                        (prev) =>
+                          (prev - 1 + titleAutocompleteData.items.length) %
+                          titleAutocompleteData.items.length
+                      );
+                      return;
+                    } else if (e.key === 'Tab') {
+                      e.preventDefault();
+                      const chosen =
+                        titleAutocompleteData.items[titleAutoIndex] ||
+                        titleAutocompleteData.items[0];
+                      if (chosen) applyTitleAutocomplete(chosen);
+                      return;
+                    } else if (e.key === 'Enter' && titleAutoNavigated) {
+                      e.preventDefault();
+                      const chosen =
+                        titleAutocompleteData.items[titleAutoIndex] ||
+                        titleAutocompleteData.items[0];
+                      if (chosen) applyTitleAutocomplete(chosen);
+                      return;
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setTitleAutoDismissed(true);
+                      setTitleAutoNavigated(false);
+                      return;
+                    }
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSave();
+                  }
+                }}
+                placeholder="Task name... (type #tag or ~list to assign)"
+                className={`w-full text-sm font-semibold focus:outline-none tracking-tight ${
+                  isDone ? 'text-zinc-400' : 'text-zinc-900'
+                }`}
+              />
+              <div className="text-[10px] text-zinc-400 mt-0.5">
+                Tip: Type <span className="font-mono">#tag</span> or <span className="font-mono">~list</span> in the name to assign or create lists & tags
+              </div>
+
+              {/* Sidebar Task Name Autocomplete Dropdown for Lists & Tags */}
+              {titleAutocompleteData && titleAutocompleteData.items.length > 0 && (
+                <div
+                  data-testid="detail-title-autocomplete"
+                  className="absolute left-0 right-0 top-full mt-1 surface-floating bg-white rounded-xl border border-zinc-200/90 shadow-xl p-1.5 z-40 animate-popover"
+                >
+                  <div className="flex items-center justify-between px-2 py-1 border-b border-zinc-100 mb-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                      Assign List or Tag
+                    </span>
+                    <span className="text-[10px] text-zinc-400 font-mono-num">
+                      Tab / Click
+                    </span>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-0.5">
+                    {titleAutocompleteData.items.map((item, idx) => {
+                      const isHighlighted = idx === titleAutoIndex;
+                      return (
+                        <button
+                          key={`${item.kind}-${item.id}`}
+                          type="button"
+                          data-testid={`detail-autocomplete-${item.kind}-${item.name}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            applyTitleAutocomplete(item);
+                          }}
+                          onMouseEnter={() => setTitleAutoIndex(idx)}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                            isHighlighted
+                              ? 'bg-zinc-900 text-white font-medium'
+                              : 'text-zinc-700 hover:bg-zinc-100'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <span className="truncate">
+                              {item.kind === 'tag'
+                                ? `#${item.name}`
+                                : item.kind === 'create-tag'
+                                  ? `+ Create & assign tag "#${item.name}"`
+                                  : item.kind === 'create-list'
+                                    ? `+ Create & move to list "${item.name}"`
+                                    : item.name}
+                            </span>
+                          </span>
+                          <span
+                            className={`text-[10px] font-mono-num px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ${
+                              isHighlighted
+                                ? 'bg-white/15 text-zinc-200'
+                                : 'bg-zinc-100 text-zinc-500'
+                            }`}
+                          >
+                            {item.kind === 'list' || item.kind === 'create-list'
+                              ? 'List'
+                              : 'Tag'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
               <div className="relative">
@@ -1092,6 +1409,157 @@ export const TaskDetailPane: React.FC = () => {
               placeholder="Write markdown notes, links, or code snippets..."
               className="w-full p-3 rounded-xl border border-zinc-200/90 text-xs text-zinc-700 font-mono leading-relaxed focus:outline-none focus:border-zinc-900"
             />
+          </div>
+
+          {/* Put into List (Move to Existing or New List) */}
+          <div className="space-y-2 relative" data-testid="detail-move-to-list-section">
+            <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+              <FolderInput className="w-3 h-3" strokeWidth={1.75} /> List (Put into List)
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft((d) => ({
+                    ...(d || getInitialDraft(task)),
+                    listId: 'inbox',
+                  }));
+                  updateTask(task.id, { listId: 'inbox' }, 'Moved task to Inbox');
+                }}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                  currentDraft.listId === 'inbox'
+                    ? 'bg-zinc-900 text-white border-zinc-900'
+                    : 'bg-zinc-50 text-zinc-600 border-zinc-200/80 hover:bg-zinc-100'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                Inbox
+              </button>
+              {lists.map((l) => {
+                const isSelectedList = currentDraft.listId === l.id;
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    data-testid={`detail-list-pill-${l.name}`}
+                    onClick={() => {
+                      setDraft((d) => ({
+                        ...(d || getInitialDraft(task)),
+                        listId: l.id,
+                      }));
+                      updateTask(task.id, { listId: l.id }, `Moved task to list "${l.name}"`);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+                      isSelectedList
+                        ? 'bg-zinc-900 text-white border-zinc-900'
+                        : 'bg-zinc-50 text-zinc-600 border-zinc-200/80 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: l.color }}
+                    />
+                    {l.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Inline List Search / Create Input */}
+            <div className="relative">
+              <input
+                type="text"
+                value={newListInput}
+                onChange={(e) => setNewListInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newListInput.trim()) {
+                    e.preventDefault();
+                    const clean = newListInput.trim().replace(/^[~^]+/, '');
+                    if (!clean) return;
+                    const existing = lists.find(
+                      (l) => l.name.toLowerCase() === clean.toLowerCase()
+                    );
+                    const targetList = existing || addList(clean, '#2563eb');
+                    setDraft((d) => ({
+                      ...(d || getInitialDraft(task)),
+                      listId: targetList.id,
+                    }));
+                    updateTask(
+                      task.id,
+                      { listId: targetList.id },
+                      `Moved task to list "${targetList.name}"`
+                    );
+                    setNewListInput('');
+                  }
+                }}
+                placeholder="+ Type list name to move or create new list..."
+                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200/90 focus:outline-none focus:border-zinc-900 bg-white"
+              />
+              {newListInput.trim().replace(/^[~^]+/, '').length > 0 && (() => {
+                const rawQ = newListInput.trim().replace(/^[~^]+/, '');
+                const q = rawQ.toLowerCase();
+                const matching = lists.filter((l) => l.name.toLowerCase().includes(q));
+                const exactExists = lists.some((l) => l.name.toLowerCase() === q);
+                return (
+                  <div className="absolute left-0 right-0 top-full mt-1 surface-floating bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1 z-30 animate-popover">
+                    {matching.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setDraft((d) => ({
+                            ...(d || getInitialDraft(task)),
+                            listId: l.id,
+                          }));
+                          updateTask(
+                            task.id,
+                            { listId: l.id },
+                            `Moved task to list "${l.name}"`
+                          );
+                          setNewListInput('');
+                        }}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 text-xs text-zinc-700 flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: l.color }}
+                          />
+                          {l.name}
+                        </span>
+                        {currentDraft.listId === l.id && (
+                          <span className="text-[10px] text-zinc-400">Current</span>
+                        )}
+                      </button>
+                    ))}
+                    {!exactExists && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const created = addList(rawQ, '#2563eb');
+                          setDraft((d) => ({
+                            ...(d || getInitialDraft(task)),
+                            listId: created.id,
+                          }));
+                          updateTask(
+                            task.id,
+                            { listId: created.id },
+                            `Moved task to new list "${created.name}"`
+                          );
+                          setNewListInput('');
+                        }}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 text-xs text-blue-600 font-semibold flex items-center justify-between"
+                      >
+                        <span>+ Create & move to list "{rawQ}"</span>
+                        <span className="text-[10px] uppercase">New List</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
           {/* Tags with Autocomplete Input */}

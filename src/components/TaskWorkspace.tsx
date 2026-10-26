@@ -69,6 +69,7 @@ export const TaskWorkspace: React.FC = () => {
     toggleTaskStatus,
     deleteTask,
     restoreTask,
+    addList,
     updateList,
     addSection,
     isSidebarCollapsed,
@@ -84,6 +85,7 @@ export const TaskWorkspace: React.FC = () => {
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [autocompleteDismissed, setAutocompleteDismissed] = useState(false);
   const [autocompleteNavigated, setAutocompleteNavigated] = useState(false);
+  const [rowListMenuTaskId, setRowListMenuTaskId] = useState<string | null>(null);
   const [fallbackViewMode, setFallbackViewMode] = useState<ViewMode>('list');
   const [sortBy, setSortBy] = useState<'priority' | 'dueDate' | 'title' | 'custom'>('priority');
   const [isListeningVoice, setIsListeningVoice] = useState(false);
@@ -365,7 +367,12 @@ export const TaskWorkspace: React.FC = () => {
       const matched = lists.find(
         (l) => l.name.toLowerCase().includes(parsed.listName!.toLowerCase())
       );
-      if (matched) targetListId = matched.id;
+      if (matched) {
+        targetListId = matched.id;
+      } else {
+        const created = addList(parsed.listName, '#2563eb');
+        targetListId = created.id;
+      }
     }
 
     const defaultDueDate =
@@ -663,10 +670,10 @@ export const TaskWorkspace: React.FC = () => {
           )}
         </div>
 
-        {/* Right Side: Source List Badge, Due Date & Trash/Restore */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Right Side: Interactive Put-into-List Picker, Due Date & Trash/Restore */}
+        <div className="flex items-center gap-2 shrink-0 relative">
           {taskList && sidebarSelection.kind !== 'list' && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
+            <span className="sm:hidden inline-flex items-center gap-1 text-[11px] text-zinc-400">
               {taskList.emoji ? (
                 <span className="text-xs leading-none">{taskList.emoji}</span>
               ) : (
@@ -675,8 +682,109 @@ export const TaskWorkspace: React.FC = () => {
                   style={{ backgroundColor: taskList.color }}
                 />
               )}
-              <span className="truncate max-w-[96px]">{taskList.name}</span>
+              <span className="truncate max-w-[72px]">{taskList.name}</span>
             </span>
+          )}
+
+          {task.status !== 'trash' && (
+            <div className="hidden sm:block relative">
+              <button
+                type="button"
+                data-testid={`task-row-list-btn-${task.id}`}
+                title="Put task into a List"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRowListMenuTaskId((prev) => (prev === task.id ? null : task.id));
+                }}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent hover:border-zinc-200/80 transition-colors"
+              >
+                {taskList ? (
+                  <>
+                    {taskList.emoji ? (
+                      <span className="text-xs leading-none">{taskList.emoji}</span>
+                    ) : (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: taskList.color }}
+                      />
+                    )}
+                    <span className="truncate max-w-[96px]">{taskList.name}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                    <span className="truncate max-w-[72px]">Inbox</span>
+                  </>
+                )}
+                <ChevronDown className="w-2.5 h-2.5 opacity-60 shrink-0" />
+              </button>
+
+              {rowListMenuTaskId === task.id && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRowListMenuTaskId(null);
+                    }}
+                  />
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-0 top-full mt-1 w-48 surface-floating bg-white rounded-xl border border-zinc-200/90 shadow-xl p-1.5 z-40 animate-popover origin-top-right"
+                  >
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 px-2 py-1 border-b border-zinc-100 mb-0.5">
+                      Put into List
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateTask(task.id, { listId: 'inbox' }, 'Moved task to Inbox');
+                        setRowListMenuTaskId(null);
+                      }}
+                      className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between ${
+                        task.listId === 'inbox'
+                          ? 'bg-zinc-900 text-white font-medium'
+                          : 'text-zinc-700 hover:bg-zinc-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                        <span>Inbox</span>
+                      </span>
+                      {task.listId === 'inbox' && <Check className="w-3 h-3 shrink-0" />}
+                    </button>
+                    {lists.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => {
+                          updateTask(
+                            task.id,
+                            { listId: l.id },
+                            `Moved task to list "${l.name}"`
+                          );
+                          setRowListMenuTaskId(null);
+                        }}
+                        className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between ${
+                          task.listId === l.id
+                            ? 'bg-zinc-900 text-white font-medium'
+                            : 'text-zinc-700 hover:bg-zinc-100'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: l.color }}
+                          />
+                          <span className="truncate">{l.name}</span>
+                        </span>
+                        {task.listId === l.id && <Check className="w-3 h-3 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {task.dueDate && !isDone && (
@@ -695,13 +803,6 @@ export const TaskWorkspace: React.FC = () => {
                   ? 'Tomorrow'
                   : format(parseISO(task.dueDate), 'MMM d')}
             </span>
-          )}
-
-          {taskList?.color && (
-            <span
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: taskList.color }}
-            />
           )}
 
           {task.status === 'trash' ? (

@@ -646,21 +646,31 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     const inspector = page.locator('aside[aria-label="Task Detail Inspector"]');
     await expect(inspector).toBeVisible();
 
-    // 2. Edit title inside inspector
+    // 2. Edit title inside inspector & verify sidebar autocomplete for Lists and new Tags
     const titleInput = inspector.locator('input[type="text"]').first();
-    await titleInput.fill('Task Title Edited Unsaved');
+    await titleInput.fill('Task Title Edited Unsaved #brandnewtag');
+    await expect(page.getByTestId('detail-title-autocomplete')).toBeVisible();
+    await expect(
+      page.getByTestId('detail-autocomplete-create-tag-brandnewtag')
+    ).toBeVisible();
 
     // Verify Save button is active and Unsaved changes banner appears
     const saveBtn = page.locator('button[aria-label="Save Task Changes"]');
     await expect(saveBtn).toBeVisible();
     await expect(page.getByText('Unsaved changes').first()).toBeVisible();
 
-    // 3. Click Save button
+    // 3. Click Save button -> #brandnewtag is extracted into tags and clean title is saved
     await saveBtn.click();
     await expect(page.getByText('Saved').first()).toBeVisible();
 
-    // Task list shows the saved title
+    // Task list shows the saved clean title and newly created #brandnewtag
     await expect(page.getByText('Task Title Edited Unsaved').first()).toBeVisible();
+    await expect(inspector.getByText('brandnewtag').first()).toBeVisible();
+
+    // Verify "List (Put into List)" section in sidebar can move task into a List
+    const listSection = page.getByTestId('detail-move-to-list-section');
+    await expect(listSection).toBeVisible();
+    await page.getByTestId('detail-list-pill-Engineering Sprint').click();
 
     if (!isMobile) {
       // 4. Click whitespace in TaskWorkspace to dismiss sidebar
