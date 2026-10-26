@@ -138,7 +138,7 @@ export const CalendarModule: React.FC = () => {
     [cursorDate]
   );
 
-  const hours = Array.from({ length: 14 }, (_, i) => i + 7); // 07:00 to 20:00
+  const hours = Array.from({ length: 24 }, (_, i) => i); // 00:00 to 23:00 (Full 24 hours)
 
   const handleNavigate = (dir: -1 | 1) => {
     if (subView === 'month') {
@@ -339,7 +339,17 @@ export const CalendarModule: React.FC = () => {
                     return (
                       <div
                         key={dateStr}
-                        onClick={() => setQuickCellDate(dateStr)}
+                        data-testid={`calendar-day-${dateStr}`}
+                        onClick={() => {
+                          if (
+                            (typeof window !== 'undefined' && window.innerWidth < 640) ||
+                            combinedItems.length > 0
+                          ) {
+                            setExpandedDayDate(dateStr);
+                          } else {
+                            setQuickCellDate(dateStr);
+                          }
+                        }}
                         className={`group min-h-[78px] sm:min-h-[112px] p-1.5 border-b border-r border-zinc-200/60 flex flex-col cursor-pointer transition-colors ${
                           !isCurrentMonth
                             ? 'bg-zinc-50/60 text-zinc-400'
@@ -349,7 +359,7 @@ export const CalendarModule: React.FC = () => {
                         }`}
                       >
                         {/* Cell Top Row: Date Number + Quiet Task Count / Quick Add */}
-                        <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center justify-between mb-1">
                           <span
                             className={`text-xs font-mono-num w-6 h-6 rounded-md flex items-center justify-center ${
                               isTodayCell
@@ -371,38 +381,62 @@ export const CalendarModule: React.FC = () => {
                                   setExpandedDayDate(dateStr);
                                 }}
                                 title={`View all ${combinedItems.length} items on ${format(day, 'MMM d')}`}
-                                className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono-num text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition-colors"
+                                className="inline-flex items-center px-1 sm:px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-mono-num font-semibold text-zinc-500 bg-zinc-100/80 sm:bg-transparent sm:text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition-colors"
                               >
                                 {combinedItems.length}
                               </button>
                             )}
-                            <Plus
-                              className="w-3 h-3 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                              strokeWidth={1.75}
-                            />
+                            <button
+                              type="button"
+                              aria-label={`Quick add on ${dateStr}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setQuickCellDate(dateStr);
+                              }}
+                              className="hidden sm:inline-flex p-0.5 rounded text-zinc-300 opacity-0 group-hover:opacity-100 hover:text-zinc-700 transition-opacity"
+                            >
+                              <Plus className="w-3 h-3" strokeWidth={1.75} />
+                            </button>
                           </div>
                         </div>
 
-                        {/* Mobile Clean Dots (<640px) */}
-                        <div className="sm:hidden flex items-center justify-center gap-1 mt-1">
-                          {combinedItems.slice(0, 4).map((item, idx) => {
-                            const dotColor =
-                              item.kind === 'event'
-                                ? item.color
-                                : getTaskAccentColor(item.task);
-                            return (
-                              <span
-                                key={idx}
-                                className="w-1.5 h-1.5 rounded-full shrink-0"
-                                style={{ backgroundColor: dotColor }}
-                              />
-                            );
-                          })}
-                          {combinedItems.length > 4 && (
-                            <span className="text-[9px] font-mono-num text-zinc-400">
-                              +{combinedItems.length - 4}
-                            </span>
+                        {/* Mobile Preview Pill + Clean Dots (<640px) — Tap cell to open Day Overview Popup */}
+                        <div className="sm:hidden flex flex-col gap-1 mt-0.5 flex-1 justify-between">
+                          {combinedItems.length > 0 && (
+                            <div
+                              style={{
+                                borderLeftColor:
+                                  combinedItems[0].kind === 'event'
+                                    ? combinedItems[0].color
+                                    : getTaskAccentColor(combinedItems[0].task),
+                              }}
+                              className="px-1 py-0.5 rounded-[3px] bg-zinc-100/90 border-l-2 text-[9px] font-medium text-zinc-700 truncate leading-tight"
+                            >
+                              {combinedItems[0].kind === 'event'
+                                ? combinedItems[0].title
+                                : combinedItems[0].task.title}
+                            </div>
                           )}
+                          <div className="flex items-center justify-center gap-1">
+                            {combinedItems.slice(0, 4).map((item, idx) => {
+                              const dotColor =
+                                item.kind === 'event'
+                                  ? item.color
+                                  : getTaskAccentColor(item.task);
+                              return (
+                                <span
+                                  key={idx}
+                                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: dotColor }}
+                                />
+                              );
+                            })}
+                            {combinedItems.length > 4 && (
+                              <span className="text-[9px] font-mono-num text-zinc-400">
+                                +{combinedItems.length - 4}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         {/* Tablet/Desktop Flat Typographic Bars — Capped at 3, Zero Scrollbars */}
@@ -554,7 +588,12 @@ export const CalendarModule: React.FC = () => {
                               className="p-2 border-r border-zinc-200/80 flex flex-col gap-1 min-w-0"
                             >
                               <div className="flex items-center justify-between gap-1">
-                                <div className="flex items-center gap-1.5 min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedDayDate(dStr)}
+                                  title={`View schedule for ${format(d, 'EEEE, MMM d')}`}
+                                  className="flex items-center gap-1.5 min-w-0 hover:opacity-80 transition-opacity cursor-pointer"
+                                >
                                   <span className="text-[11px] font-medium text-zinc-500">
                                     {format(d, 'EEE')}
                                   </span>
@@ -567,7 +606,7 @@ export const CalendarModule: React.FC = () => {
                                   >
                                     {format(d, 'd')}
                                   </span>
-                                </div>
+                                </button>
                                 {dayAllTasks.length > 0 && (
                                   <button
                                     type="button"

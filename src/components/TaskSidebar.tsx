@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format, addDays, isBefore, parseISO, startOfToday } from 'date-fns';
 import {
+  AlertCircle,
   Archive,
   Ban,
   Calendar,
@@ -275,6 +276,8 @@ export const TaskSidebar: React.FC = () => {
     today: activeTasks.filter(
       (t) => t.dueDate && (isTaskDueOnDate(t, todayStr) || isBefore(parseISO(t.dueDate), today))
     ).length,
+    overdue: activeTasks.filter((t) => Boolean(t.dueDate && isBefore(parseISO(t.dueDate), today)))
+      .length,
     tomorrow: activeTasks.filter((t) => t.dueDate && isTaskDueOnDate(t, tomorrowStr)).length,
     next7days: activeTasks.filter((t) => isTaskDueInDateRange(t, todayStr, next7Str)).length,
     inbox: activeTasks.filter((t) => t.listId === 'inbox').length,
@@ -293,6 +296,12 @@ export const TaskSidebar: React.FC = () => {
       label: 'Today',
       icon: <Calendar className="w-4 h-4 text-blue-600" strokeWidth={1.75} />,
       count: counts.today,
+    },
+    {
+      id: 'overdue',
+      label: 'Overdue',
+      icon: <AlertCircle className="w-4 h-4 text-rose-600" strokeWidth={1.75} />,
+      count: counts.overdue,
     },
     {
       id: 'tomorrow',

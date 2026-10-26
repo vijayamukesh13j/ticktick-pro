@@ -925,7 +925,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Recurring task completion flow: archives completed instance and advances recurring rule
     if (isCompleting && target.recurrenceRule) {
       const todayDateStr = format(new Date(), 'yyyy-MM-dd');
-      const baseDate = target.dueDate || todayDateStr;
+      const nowFormatted = format(new Date(), 'yyyy-MM-dd HH:mm');
+      const baseDate = target.dueDate || target.startDate || todayDateStr;
       const nextDue = getNextOccurrenceDate(baseDate, target.recurrenceRule);
       const nextStart = target.startDate
         ? getNextOccurrenceDate(target.startDate, target.recurrenceRule)
@@ -935,6 +936,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...target,
         id: crypto.randomUUID(),
         status: 'completed',
+        dueDate: baseDate,
+        startDate: target.startDate || baseDate,
         completedAt: new Date().toISOString(),
         recurrenceRule: undefined,
         title: target.title,
@@ -942,23 +945,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const resetSubtasks = target.subtasks?.map((st) => ({ ...st, completed: false })) || [];
 
-      updateTask(
-        id,
-        {
-          status: 'todo',
-          dueDate: nextDue,
-          startDate: nextStart,
-          completedAt: undefined,
-          subtasks: resetSubtasks,
-        },
-        `Completed recurring occurrence; next scheduled on ${nextDue}`
-      );
-
-      setTasks((prev) => [completedInstance, ...prev]);
+      setTasks((prev) => [
+        completedInstance,
+        ...prev.map((t) => {
+          if (t.id !== id) return t;
+          return {
+            ...t,
+            status: 'todo' as const,
+            dueDate: nextDue,
+            startDate: nextStart,
+            completedAt: undefined,
+            subtasks: resetSubtasks,
+            updatedAt: todayDateStr,
+            activities: [
+              {
+                id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                actor: preferences.fullName,
+                action: `Completed recurring occurrence (${baseDate}); next scheduled on ${nextDue}`,
+                timestamp: nowFormatted,
+              },
+              ...t.activities,
+            ],
+          };
+        }),
+      ]);
 
       pushToast({
-        title: 'Recurring task completed',
-        description: `Next due: ${nextDue}`,
+        title: 'Recurring task advanced',
+        description: `Next occurrence: ${nextDue}`,
         kind: 'success',
       });
       return;

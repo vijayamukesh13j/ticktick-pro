@@ -89,6 +89,7 @@ export const TaskWorkspace: React.FC = () => {
 
   // Collapsible section toggles
   const [isCountdownCollapsed, setIsCountdownCollapsed] = useState(false);
+  const [isOverdueCollapsed, setIsOverdueCollapsed] = useState(false);
   const [isActiveSectionCollapsed, setIsActiveSectionCollapsed] = useState(false);
   const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(false);
   const [isNarrowScreen, setIsNarrowScreen] = useState(
@@ -152,6 +153,15 @@ export const TaskWorkspace: React.FC = () => {
               t.status !== 'wont_do' &&
               t.dueDate &&
               (isTaskDueOnDate(t, todayStr) || isBefore(parseISO(t.dueDate), today))
+          );
+          break;
+        case 'overdue':
+          base = base.filter(
+            (t) =>
+              t.status !== 'trash' &&
+              t.status !== 'wont_do' &&
+              t.status !== 'completed' &&
+              Boolean(t.dueDate && isBefore(parseISO(t.dueDate), today))
           );
           break;
         case 'tomorrow':
@@ -257,11 +267,13 @@ export const TaskWorkspace: React.FC = () => {
 
     const defaultDueDate =
       parsed.dueDate ??
-      (sidebarSelection.kind === 'smart' && sidebarSelection.id === 'today'
+      (parsed.recurrenceRule
         ? todayStr
-        : sidebarSelection.kind === 'smart' && sidebarSelection.id === 'tomorrow'
-          ? tomorrowStr
-          : undefined);
+        : sidebarSelection.kind === 'smart' && sidebarSelection.id === 'today'
+          ? todayStr
+          : sidebarSelection.kind === 'smart' && sidebarSelection.id === 'tomorrow'
+            ? tomorrowStr
+            : undefined);
 
     addTask({
       title: parsed.cleanTitle,
@@ -320,6 +332,7 @@ export const TaskWorkspace: React.FC = () => {
       const titles: Record<string, string> = {
         all: 'All Tasks',
         today: 'Today',
+        overdue: 'Overdue',
         tomorrow: 'Tomorrow',
         next7days: 'Next 7 Days',
         inbox: 'Inbox',
@@ -408,8 +421,20 @@ export const TaskWorkspace: React.FC = () => {
     );
   }
 
+  const isTaskOverdue = (t: Task) =>
+    t.status !== 'completed' &&
+    t.status !== 'trash' &&
+    t.status !== 'wont_do' &&
+    Boolean(t.dueDate && isBefore(parseISO(t.dueDate), today));
+
+  const isOverdueView = sidebarSelection.kind === 'smart' && sidebarSelection.id === 'overdue';
   const pinnedTasks = filteredTasks.filter((t) => t.isPinned && t.status !== 'completed');
-  const openTasks = filteredTasks.filter((t) => !t.isPinned && t.status !== 'completed');
+  const overdueTasks = isOverdueView
+    ? []
+    : filteredTasks.filter((t) => !t.isPinned && isTaskOverdue(t));
+  const openTasks = isOverdueView
+    ? filteredTasks.filter((t) => !t.isPinned && t.status !== 'completed')
+    : filteredTasks.filter((t) => !t.isPinned && t.status !== 'completed' && !isTaskOverdue(t));
   const doneTasks = filteredTasks.filter((t) => t.status === 'completed');
 
   const renderTaskRow = (task: Task) => {
@@ -1009,9 +1034,46 @@ export const TaskWorkspace: React.FC = () => {
               </section>
             )}
 
+            {/* Dedicated Collapsible Overdue Section (Tasks not completed by due date) */}
+            {overdueTasks.length > 0 && (
+              <section data-testid="overdue-section">
+                <div className="flex items-center justify-between mb-1.5 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsOverdueCollapsed((v) => !v)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700"
+                  >
+                    {isOverdueCollapsed ? (
+                      <ChevronRight className="w-3.5 h-3.5 text-rose-400" strokeWidth={1.75} />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-rose-400" strokeWidth={1.75} />
+                    )}
+                    <span>Overdue</span>
+                    <span className="text-[11px] font-mono-num px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200/70">
+                      {overdueTasks.length}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      overdueTasks.forEach((t) =>
+                        updateTask(t.id, { dueDate: todayStr, startDate: todayStr }, 'Rescheduled overdue task to Today')
+                      );
+                    }}
+                    className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 px-2 py-0.5 rounded hover:bg-rose-50 transition-colors"
+                  >
+                    Move all to Today
+                  </button>
+                </div>
+                {!isOverdueCollapsed && (
+                  <div className="space-y-1">{overdueTasks.map(renderTaskRow)}</div>
+                )}
+              </section>
+            )}
+
             {/* Active / Today Tasks Section */}
             <section>
-              {(openTasks.length > 0 || doneTasks.length > 0) && (
+              {(openTasks.length > 0 || doneTasks.length > 0 || overdueTasks.length > 0) && (
                 <button
                   type="button"
                   onClick={() => setIsActiveSectionCollapsed((v) => !v)}
@@ -1025,7 +1087,9 @@ export const TaskWorkspace: React.FC = () => {
                   <span>
                     {sidebarSelection.kind === 'smart' && sidebarSelection.id === 'today'
                       ? 'Today'
-                      : 'Tasks'}
+                      : sidebarSelection.kind === 'smart' && sidebarSelection.id === 'overdue'
+                        ? 'Overdue'
+                        : 'Tasks'}
                   </span>
                   <span className="text-[11px] font-mono-num text-zinc-400">
                     {openTasks.length}
@@ -1033,7 +1097,10 @@ export const TaskWorkspace: React.FC = () => {
                 </button>
               )}
 
-              {openTasks.length === 0 && pinnedTasks.length === 0 && doneTasks.length === 0 ? (
+              {openTasks.length === 0 &&
+              overdueTasks.length === 0 &&
+              pinnedTasks.length === 0 &&
+              doneTasks.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="w-10 h-10 rounded-xl bg-zinc-100 text-zinc-500 flex items-center justify-center mx-auto mb-3 border border-zinc-200/80">
                     <Check className="w-5 h-5" strokeWidth={1.75} />

@@ -134,7 +134,7 @@ export const TaskDetailPane: React.FC = () => {
 
   const task = tasks.find((t) => t.id === selectedTaskId);
 
-  // Synchronize draft when task changes
+  // Synchronize draft when task changes or when recurring occurrence advances dates
   useEffect(() => {
     if (task) {
       setDraft(getInitialDraft(task));
@@ -144,7 +144,13 @@ export const TaskDetailPane: React.FC = () => {
       setDraft(null);
       setActiveTaskId(null);
     }
-  }, [task?.id]);
+  }, [
+    task?.id,
+    task?.dueDate,
+    task?.startDate,
+    task?.recurrenceRule,
+    task?.status,
+  ]);
 
   const handleMouseDownResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -196,6 +202,12 @@ export const TaskDetailPane: React.FC = () => {
 
   const handleSave = () => {
     if (!task || !currentDraft) return;
+    const todayLocalStr = new Date().toLocaleDateString('en-CA');
+    const resolvedDueDate =
+      currentDraft.dueDate || (currentDraft.recurrenceRule ? todayLocalStr : undefined);
+    const resolvedStartDate =
+      currentDraft.startDate || (currentDraft.recurrenceRule ? resolvedDueDate : undefined);
+
     updateTask(
       task.id,
       {
@@ -203,8 +215,8 @@ export const TaskDetailPane: React.FC = () => {
         content: currentDraft.content,
         priority: currentDraft.priority,
         listId: currentDraft.listId,
-        startDate: currentDraft.startDate || undefined,
-        dueDate: currentDraft.dueDate || undefined,
+        startDate: resolvedStartDate,
+        dueDate: resolvedDueDate,
         startTime: currentDraft.startTime || undefined,
         endTime: currentDraft.endTime || undefined,
         isAllDay: !currentDraft.startTime,
@@ -744,12 +756,19 @@ export const TaskDetailPane: React.FC = () => {
               </label>
               <select
                 value={currentDraft.recurrenceRule}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...(d || getInitialDraft(task)),
-                    recurrenceRule: e.target.value,
-                  }))
-                }
+                onChange={(e) => {
+                  const nextRule = e.target.value;
+                  const todayLocalStr = new Date().toLocaleDateString('en-CA');
+                  setDraft((d) => {
+                    const base = d || getInitialDraft(task);
+                    return {
+                      ...base,
+                      recurrenceRule: nextRule,
+                      dueDate: base.dueDate || (nextRule ? todayLocalStr : base.dueDate),
+                      startDate: base.startDate || (nextRule ? base.dueDate || todayLocalStr : base.startDate),
+                    };
+                  });
+                }}
                 className="w-full px-2 py-1 rounded-md border border-zinc-200/90 bg-white text-xs"
               >
                 <option value="">Does not repeat</option>

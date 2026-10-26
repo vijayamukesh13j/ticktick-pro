@@ -17,6 +17,7 @@ export type PrimaryModule =
 export type SmartListId =
   | 'all'
   | 'today'
+  | 'overdue'
   | 'tomorrow'
   | 'next7days'
   | 'inbox'

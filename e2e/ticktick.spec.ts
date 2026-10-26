@@ -582,11 +582,19 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     await expect(page.locator('button[aria-label="Previous period"]')).toBeVisible();
     await expect(page.locator('button[aria-label="Next period"]')).toBeVisible();
 
-    // On desktop Month view, verify busy day shows "+N more" pill and opens Day Schedule Overview
+    // On desktop Month view, verify busy day shows "+N more" pill and opens Day Schedule Overview;
+    // On mobile Month view, verify tapping any day cell opens Day Schedule Overview popup
     if (!isMobile) {
       const moreBtn = page.locator('button[data-testid^="calendar-more-"]').first();
       await expect(moreBtn).toBeVisible();
       await moreBtn.click();
+      const dayDialog = page.locator('[role="dialog"][aria-label="Day Schedule Overview"]');
+      await expect(dayDialog).toBeVisible();
+      await page.locator('button[aria-label="Close day overview"]').click();
+      await expect(dayDialog).toHaveCount(0);
+    } else {
+      const mobileDayCell = page.locator('[data-testid^="calendar-day-"]').nth(15);
+      await mobileDayCell.click();
       const dayDialog = page.locator('[role="dialog"][aria-label="Day Schedule Overview"]');
       await expect(dayDialog).toBeVisible();
       await page.locator('button[aria-label="Close day overview"]').click();
@@ -599,10 +607,12 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     const monthText = await headerTitle.textContent();
     expect(monthText).toContain('2026');
 
-    // Switch to Week view and verify header changes to range
+    // Switch to Week view and verify header changes to range + 24-hour slots (00:00 to 23:00)
     await page.getByRole('button', { name: 'Week', exact: true }).click();
     const weekText = await headerTitle.textContent();
     expect(weekText).toBeDefined();
+    await expect(page.getByText('00:00').first()).toBeVisible();
+    await expect(page.getByText('23:00').first()).toBeVisible();
 
     // Switch to Day view and verify header contains day format
     await page.getByRole('button', { name: 'Day', exact: true }).click();

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { format, subDays } from 'date-fns';
 import {
   Award,
@@ -77,6 +77,13 @@ export const HabitTrackerModule: React.FC = () => {
   const [habitMoodFilter, setHabitMoodFilter] = useState<'all' | 'great' | 'good' | 'neutral' | 'tired'>('all');
   const [mobileHabitView, setMobileHabitView] = useState<'today' | 'matrix'>('today');
   const [isResizing, setIsResizing] = useState(false);
+  const matrixScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mobileHabitView === 'matrix' && matrixScrollRef.current) {
+      matrixScrollRef.current.scrollLeft = matrixScrollRef.current.scrollWidth;
+    }
+  }, [mobileHabitView]);
 
   const handleMouseDownResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -344,9 +351,9 @@ export const HabitTrackerModule: React.FC = () => {
             mobileHabitView === 'matrix' ? 'block' : 'hidden md:block'
           } surface-card rounded-xl overflow-hidden`}
         >
-          <div className="overflow-x-auto">
-            <div className="min-w-[540px]">
-              <div className="grid grid-cols-[minmax(170px,1fr)_repeat(7,40px)_64px] items-center bg-zinc-50 px-4 py-2.5 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
+          <div ref={matrixScrollRef} className="overflow-x-auto">
+            <div className="min-w-[520px]">
+              <div className="grid grid-cols-[minmax(180px,1fr)_repeat(6,40px)_58px] items-center bg-zinc-50 pl-4 pr-2 py-2 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
                 <div>
                   Habit & Daily Goal
                   <span className="sm:hidden font-normal text-[10px] text-zinc-400 ml-1">
@@ -355,19 +362,24 @@ export const HabitTrackerModule: React.FC = () => {
                 </div>
                 {last7Days.map((d) => {
                   const dStr = format(d, 'yyyy-MM-dd');
+                  const isTodayCol = dStr === todayStr;
                   return (
                     <div
                       key={dStr}
+                      data-testid={isTodayCol ? 'habit-weekly-today-header' : undefined}
                       className={`text-center ${
-                        dStr === todayStr ? 'text-zinc-900 font-bold' : ''
+                        isTodayCol
+                          ? 'bg-blue-600 text-white rounded-lg py-1 px-1 shadow-2xs font-bold ring-2 ring-blue-500/20'
+                          : ''
                       }`}
                     >
-                      <div>{format(d, 'EEE')}</div>
+                      <div className={isTodayCol ? 'text-[9px] uppercase tracking-wider' : ''}>
+                        {isTodayCol ? 'Today' : format(d, 'EEE')}
+                      </div>
                       <div className="font-mono-num text-[10px]">{format(d, 'd')}</div>
                     </div>
                   );
                 })}
-                <div className="text-right">Streak</div>
               </div>
 
               {/* Grouped by Time of Day */}
@@ -390,92 +402,103 @@ export const HabitTrackerModule: React.FC = () => {
                           <div
                             key={habit.id}
                             onClick={() => setSelectedHabitId(habit.id)}
-                            className={`grid grid-cols-[minmax(170px,1fr)_repeat(7,40px)_64px] items-center px-4 py-3 cursor-pointer ${
+                            className={`grid grid-cols-[minmax(180px,1fr)_repeat(6,40px)_58px] items-center pl-4 pr-2 py-2.5 cursor-pointer ${
                               isSelected ? 'bg-zinc-900/[0.03]' : 'hover:bg-zinc-50/70'
                             }`}
                           >
-                        <div className="flex items-center gap-3 min-w-0 pr-2">
-                          <span
-                            style={{ backgroundColor: `${habit.color}15`, color: habit.color }}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-black/[0.04]"
-                          >
-                            <UiIcon name={habit.icon} className="w-4 h-4" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-xs font-semibold text-zinc-900 truncate">
-                              {habit.name}
-                            </div>
-                            <div className="text-[10px] text-zinc-400 truncate font-mono-num">
-                              {habit.goalType === 'quantified'
-                                ? `Goal: ${habit.targetValue} ${habit.unit}/day`
-                                : habit.quote}
-                            </div>
-                          </div>
-                        </div>
-
-                        {last7Days.map((d) => {
-                          const dStr = format(d, 'yyyy-MM-dd');
-                          const entry = habit.logs[dStr];
-                          const isCompleted = entry?.completed;
-                          const partialPct =
-                            habit.goalType === 'quantified' && entry
-                              ? Math.min(100, Math.round((entry.value / habit.targetValue) * 100))
-                              : isCompleted
-                                ? 100
-                                : 0;
-
-                          return (
-                            <div key={dStr} className="flex items-center justify-center">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleHabitDate(habit.id, dStr);
-                                }}
-                                title={
-                                  entry
-                                    ? `${entry.value}/${habit.targetValue} ${habit.unit}`
-                                    : 'Click to check in'
-                                }
-                                style={{
-                                  backgroundColor: isCompleted
-                                    ? habit.color
-                                    : partialPct > 0
-                                      ? `${habit.color}26`
-                                      : undefined,
-                                  borderColor:
-                                    isCompleted || partialPct > 0 ? habit.color : undefined,
-                                }}
-                                className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-mono-num font-bold ${
-                                  isCompleted
-                                    ? 'text-white'
-                                    : partialPct > 0
-                                      ? 'text-zinc-900'
-                                      : 'border-zinc-200 hover:border-zinc-400 text-zinc-300'
-                                }`}
+                            <div className="flex items-center gap-3 min-w-0 pr-2">
+                              <span
+                                style={{ backgroundColor: `${habit.color}15`, color: habit.color }}
+                                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-black/[0.04]"
                               >
-                                {isCompleted ? (
-                                  <Check className="w-3.5 h-3.5 stroke-[2.75] animate-check" />
-                                ) : partialPct > 0 ? (
-                                  `${partialPct}%`
-                                ) : (
-                                  ''
-                                )}
-                              </button>
+                                <UiIcon name={habit.icon} className="w-4 h-4" />
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-zinc-900 truncate flex items-center gap-1.5">
+                                  <span className="truncate">{habit.name}</span>
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-mono-num font-semibold text-orange-500 shrink-0">
+                                    <Flame className="w-3 h-3 fill-orange-500" />
+                                    {streak}d
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-zinc-400 truncate font-mono-num">
+                                  {habit.goalType === 'quantified'
+                                    ? `Goal: ${habit.targetValue} ${habit.unit}/day`
+                                    : habit.quote}
+                                </div>
+                              </div>
                             </div>
-                          );
-                        })}
 
-                        <div className="text-right font-mono-num text-xs font-semibold text-zinc-800 flex items-center justify-end gap-1">
-                          <Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
-                          {streak}d
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                            {last7Days.map((d) => {
+                              const dStr = format(d, 'yyyy-MM-dd');
+                              const isTodayCol = dStr === todayStr;
+                              const entry = habit.logs[dStr];
+                              const isCompleted = entry?.completed;
+                              const partialPct =
+                                habit.goalType === 'quantified' && entry
+                                  ? Math.min(100, Math.round((entry.value / habit.targetValue) * 100))
+                                  : isCompleted
+                                    ? 100
+                                    : 0;
+
+                              return (
+                                <div
+                                  key={dStr}
+                                  className={`flex items-center justify-center ${
+                                    isTodayCol
+                                      ? 'bg-blue-50/60 border-l border-blue-200/60 py-1 rounded-r-lg'
+                                      : ''
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleHabitDate(habit.id, dStr);
+                                    }}
+                                    title={
+                                      entry
+                                        ? `${entry.value}/${habit.targetValue} ${habit.unit}`
+                                        : 'Click to check in'
+                                    }
+                                    style={{
+                                      backgroundColor: isCompleted
+                                        ? habit.color
+                                        : partialPct > 0
+                                          ? `${habit.color}26`
+                                          : undefined,
+                                      borderColor:
+                                        isCompleted || partialPct > 0 ? habit.color : undefined,
+                                    }}
+                                    className={`${
+                                      isTodayCol ? 'w-8 h-8 ring-2 ring-blue-500/20' : 'w-7 h-7'
+                                    } rounded-full border flex items-center justify-center text-[10px] font-mono-num font-bold ${
+                                      isCompleted
+                                        ? 'text-white'
+                                        : partialPct > 0
+                                          ? 'text-zinc-900'
+                                          : isTodayCol
+                                            ? 'border-blue-400 bg-white hover:border-blue-600 text-zinc-400'
+                                            : 'border-zinc-200 hover:border-zinc-400 text-zinc-300'
+                                    }`}
+                                  >
+                                    {isCompleted ? (
+                                      <Check className="w-3.5 h-3.5 stroke-[2.75] animate-check" />
+                                    ) : partialPct > 0 ? (
+                                      `${partialPct}%`
+                                    ) : (
+                                      ''
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
