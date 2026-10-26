@@ -487,11 +487,73 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     const filledUrl = await urlInput.inputValue();
     expect(filledUrl).toContain('supabase.co');
 
+    // Mock remote Supabase REST response to verify new-device connection pulls personal data instead of keeping mock data
+    const todayIso = new Date().toLocaleDateString('en-CA');
+    await page.route('**/rest/v1/ticktick_workspace*', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'default',
+            name: 'Vijay Personal',
+            payload: {
+              deviceId: 'cloud-dev-1',
+              updatedAt: Date.now(),
+              userName: 'Vijay Personal',
+              tasks: [
+                {
+                  id: 'personal-task-999',
+                  title: 'My Personal Cloud Task From DB',
+                  content: 'Synced from personal database',
+                  isNote: false,
+                  listId: 'inbox',
+                  status: 'todo',
+                  priority: 5,
+                  tags: [],
+                  dueDate: todayIso,
+                  startDate: todayIso,
+                  isAllDay: true,
+                  reminders: [],
+                  constantReminder: false,
+                  emailReminder: false,
+                  estimatedPomos: 1,
+                  completedPomos: 0,
+                  focusSeconds: 0,
+                  subtasks: [],
+                  attachments: [],
+                  comments: [],
+                  activities: [],
+                  isPinned: true,
+                  sortOrder: 0,
+                  createdAt: todayIso,
+                  updatedAt: todayIso,
+                },
+              ],
+              lists: [],
+              folders: [],
+              sections: [],
+              tags: [],
+              habits: [],
+              pomodoroSessions: [],
+              countdowns: [],
+            },
+          }),
+        });
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      }
+    });
+
     // 5. Connect to database
     await page.getByRole('button', { name: /Connect & Sync Database/i }).click();
 
-    // Verify modal is dismissed and success toast appears
+    // Verify modal is dismissed and personal task from DB replaces mock seed data
     await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 10000 });
+    await expect(page.getByText('My Personal Cloud Task From DB').first()).toBeVisible();
+    await expect(
+      page.getByText('Finalize Supabase RLS Policies & Realtime Sync Architecture')
+    ).toHaveCount(0);
 
     // 6. Test Same Browser Persistence:
     // Reload the page without clearing storage to simulate the same user revisiting the browser

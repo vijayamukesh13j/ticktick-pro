@@ -1640,8 +1640,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const isApplyingRemoteRef = useRef<boolean>(false);
   const isInitialMountRef = useRef<boolean>(true);
+  const hasCompletedInitialPullRef = useRef<boolean>(false);
   const localUpdatedAtRef = useRef<number>(
     Number(localStorage.getItem('ticktick_v2_updated_at') || '0')
+  );
+
+  // Known Demo / Seed IDs so mock data on a new device is never mistaken for personal cloud data
+  const seedTaskIds = useMemo(() => new Set(INITIAL_TASKS.map((t) => t.id)), []);
+  const seedTaskTitles = useMemo(
+    () => new Map(INITIAL_TASKS.map((t) => [t.id, t.title])),
+    []
+  );
+  const seedListIds = useMemo(() => new Set(INITIAL_LISTS.map((l) => l.id)), []);
+  const seedListNames = useMemo(
+    () => new Map(INITIAL_LISTS.map((l) => [l.id, l.name])),
+    []
+  );
+  const seedPomoIds = useMemo(
+    () => new Set(INITIAL_POMODORO_SESSIONS.map((p) => p.id)),
+    []
+  );
+
+  const isMockSeedTaskList = useCallback(
+    (taskList?: Task[] | null): boolean => {
+      if (!Array.isArray(taskList) || taskList.length === 0) return false;
+      return (
+        taskList.length === INITIAL_TASKS.length &&
+        taskList.every(
+          (t) => seedTaskIds.has(t.id) && seedTaskTitles.get(t.id) === t.title
+        )
+      );
+    },
+    [seedTaskIds, seedTaskTitles]
   );
 
   interface CloudWorkspaceSnapshot {
@@ -1664,12 +1694,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const buildSnapshot = useCallback(
     (overrideUpdatedAt?: number): CloudWorkspaceSnapshot => {
-      const ts = overrideUpdatedAt ?? (localUpdatedAtRef.current || Date.now());
-      localUpdatedAtRef.current = ts;
-      try {
-        localStorage.setItem('ticktick_v2_updated_at', String(ts));
-      } catch {
-        // ignore storage quota errors
+      // Never stamp untouched mock seed data with Date.now() unless explicitly pushing a user edit
+      const ts = overrideUpdatedAt ?? localUpdatedAtRef.current;
+      if (overrideUpdatedAt !== undefined) {
+        localUpdatedAtRef.current = ts;
+        try {
+          localStorage.setItem('ticktick_v2_updated_at', String(ts));
+        } catch {
+          // ignore storage quota errors
+        }
       }
       return {
         deviceId: deviceIdRef.current,
@@ -1719,34 +1752,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     (snap: Partial<CloudWorkspaceSnapshot>, silent = false) => {
       if (!snap || !Array.isArray(snap.tasks)) return false;
       isApplyingRemoteRef.current = true;
-      if (snap.updatedAt && snap.updatedAt > localUpdatedAtRef.current) {
-        localUpdatedAtRef.current = snap.updatedAt;
-        try {
-          localStorage.setItem('ticktick_v2_updated_at', String(snap.updatedAt));
-        } catch {
-          // ignore
-        }
+      const nextTs = snap.updatedAt || Date.now();
+      localUpdatedAtRef.current = nextTs;
+      try {
+        localStorage.setItem('ticktick_v2_updated_at', String(nextTs));
+      } catch {
+        // ignore
       }
+
       setTasks(snap.tasks);
-      if (Array.isArray(snap.lists)) setLists(snap.lists);
-      if (Array.isArray(snap.folders)) setFolders(snap.folders);
-      if (Array.isArray(snap.sections)) setSections(snap.sections);
-      if (Array.isArray(snap.tags)) setTags(snap.tags);
-      if (Array.isArray(snap.habits)) setHabits(snap.habits);
-      if (Array.isArray(snap.pomodoroSessions)) setPomodoroSessions(snap.pomodoroSessions);
+      saveStored('tasks', snap.tasks);
+
+      if (Array.isArray(snap.lists)) {
+        setLists(snap.lists);
+        saveStored('lists', snap.lists);
+      }
+      if (Array.isArray(snap.folders)) {
+        setFolders(snap.folders);
+        saveStored('folders', snap.folders);
+      }
+      if (Array.isArray(snap.sections)) {
+        setSections(snap.sections);
+        saveStored('sections', snap.sections);
+      }
+      if (Array.isArray(snap.tags)) {
+        setTags(snap.tags);
+        saveStored('tags', snap.tags);
+      }
+      if (Array.isArray(snap.habits)) {
+        setHabits(snap.habits);
+        saveStored('habits', snap.habits);
+      }
+      if (Array.isArray(snap.pomodoroSessions)) {
+        setPomodoroSessions(snap.pomodoroSessions);
+        saveStored('pomo_sessions', snap.pomodoroSessions);
+      }
       if (Array.isArray(snap.countdowns)) {
         setCountdowns(snap.countdowns);
+        saveStored('countdowns', snap.countdowns);
       }
-      if (Array.isArray(snap.customFilters)) setCustomFilters(snap.customFilters);
-      if (Array.isArray(snap.templates)) setTemplates(snap.templates);
+      if (Array.isArray(snap.customFilters)) {
+        setCustomFilters(snap.customFilters);
+        saveStored('filters', snap.customFilters);
+      }
+      if (Array.isArray(snap.templates)) {
+        setTemplates(snap.templates);
+        saveStored('templates', snap.templates);
+      }
       if (Array.isArray(snap.calendarSubscriptions)) {
         setCalendarSubscriptions(snap.calendarSubscriptions);
+        saveStored('cal_subs', snap.calendarSubscriptions);
       }
       if (snap.preferences?.fullName) {
         setPreferences((prev) => ({
           ...prev,
           fullName: snap.preferences?.fullName || prev.fullName,
           email: snap.preferences?.email || prev.email,
+          theme: snap.preferences?.theme || prev.theme,
+          achievementScore:
+            typeof snap.preferences?.achievementScore === 'number'
+              ? snap.preferences.achievementScore
+              : prev.achievementScore,
         }));
       } else if (snap.userName) {
         setPreferences((prev) => ({ ...prev, fullName: snap.userName || prev.fullName }));
@@ -1758,9 +1824,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSupabaseErrorMessage(null);
       if (!silent) {
         pushToast({
-          title: 'Synced from Supabase Cloud',
-          description: `${snap.tasks.length} tasks & ${(snap.pomodoroSessions || []).length} focus logs updated`,
-          kind: 'info',
+          title: 'Personal Data Loaded from Database',
+          description: `${snap.tasks.length} tasks & ${(snap.pomodoroSessions || []).length} focus logs synced`,
+          kind: 'success',
         });
       }
       return true;
@@ -1795,12 +1861,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .on('broadcast', { event: 'workspace-sync' }, ({ payload }) => {
         const snap = payload as CloudWorkspaceSnapshot | undefined;
         if (!snap || snap.deviceId === deviceIdRef.current) return;
+        // Never allow a peer holding default mock seed data to overwrite personal data
+        if (isMockSeedTaskList(snap.tasks)) return;
         applyRemoteSnapshot(snap, false);
       })
       .on('broadcast', { event: 'request-workspace' }, ({ payload }) => {
         const requesterId = (payload as { deviceId?: string })?.deviceId;
         if (requesterId === deviceIdRef.current) return;
         const currentSnap = buildSnapshotRef.current();
+        // Never broadcast untouched mock seed data to a newly connecting device
+        if (isMockSeedTaskList(currentSnap.tasks) && localUpdatedAtRef.current === 0) {
+          return;
+        }
         channel.send({
           type: 'broadcast',
           event: 'workspace-reply',
@@ -1810,7 +1882,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .on('broadcast', { event: 'workspace-reply' }, ({ payload }) => {
         const snap = payload as CloudWorkspaceSnapshot | undefined;
         if (!snap || snap.deviceId === deviceIdRef.current) return;
-        if ((snap.updatedAt || 0) >= localUpdatedAtRef.current) {
+        if (isMockSeedTaskList(snap.tasks)) return;
+        if (
+          isMockSeedTaskList(tasksRef.current) ||
+          (snap.updatedAt || 0) >= localUpdatedAtRef.current
+        ) {
           applyRemoteSnapshot(snap, true);
         }
       })
@@ -1823,7 +1899,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (
               entry &&
               Array.isArray(entry.tasks) &&
-              entry.updatedAt > localUpdatedAtRef.current &&
+              !isMockSeedTaskList(entry.tasks) &&
+              (isMockSeedTaskList(tasksRef.current) ||
+                entry.updatedAt > localUpdatedAtRef.current) &&
               (!newestPeer || entry.updatedAt > newestPeer.updatedAt)
             ) {
               newestPeer = entry;
@@ -1839,13 +1917,370 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setSupabaseStatus('connected');
           setSupabaseLastSyncedAt(format(new Date(), 'HH:mm:ss'));
           const initialSnap = buildSnapshotRef.current();
-          await channel.track(initialSnap);
+          // Only track in presence if this device has real personal data (never track fresh mock data!)
+          if (!isMockSeedTaskList(initialSnap.tasks) && initialSnap.updatedAt > 0) {
+            await channel.track(initialSnap);
+          } else {
+            await channel.send({
+              type: 'broadcast',
+              event: 'request-workspace',
+              payload: { deviceId: deviceIdRef.current },
+            });
+          }
         }
       });
 
     channelRef.current = channel;
     return channel;
-  }, [applyRemoteSnapshot]);
+  }, [applyRemoteSnapshot, isMockSeedTaskList]);
+
+  const pullWorkspaceFromSupabase = useCallback(
+    async (options?: {
+      isInitialConnect?: boolean;
+      silent?: boolean;
+    }): Promise<{ ok: boolean; message: string }> => {
+      const client = getSupabaseClient();
+      if (!client) {
+        return { ok: false, message: 'Supabase URL & Key are not configured yet.' };
+      }
+      setSupabaseStatus('syncing');
+      setSupabaseErrorMessage(null);
+
+      try {
+        let bestSnapshot: Partial<CloudWorkspaceSnapshot> | null = null;
+        let sourceLabel = 'Supabase Cloud';
+        let wsWasMockOverwritten = false;
+
+        // 1. Query ticktick_workspace, tasks, lists, pomodoro_sessions, and profiles in parallel
+        const [wsQuery, tasksQuery, listsQuery, pomoQuery, profQuery] = await Promise.all([
+          client
+            .from('ticktick_workspace')
+            .select('*')
+            .eq('id', 'default')
+            .maybeSingle(),
+          client
+            .from('tasks')
+            .select('*')
+            .order('updated_at', { ascending: false }),
+          client.from('lists').select('*'),
+          client.from('pomodoro_sessions').select('*'),
+          client.from('profiles').select('*').eq('id', 'default').maybeSingle(),
+        ]);
+
+        // Extract profile name if customized
+        let recoveredUserName: string | undefined;
+        let recoveredUserEmail: string | undefined;
+        if (!profQuery.error && profQuery.data) {
+          const pName = profQuery.data.full_name || profQuery.data.name;
+          if (pName && pName !== 'Alex Rivera') {
+            recoveredUserName = String(pName);
+          }
+          if (profQuery.data.email && profQuery.data.email !== 'alex.rivera@workspace.dev') {
+            recoveredUserEmail = String(profQuery.data.email);
+          }
+        }
+
+        // Inspect ticktick_workspace snapshot
+        if (!wsQuery.error && wsQuery.data) {
+          if (
+            wsQuery.data.name &&
+            wsQuery.data.name !== 'Alex Rivera' &&
+            !recoveredUserName
+          ) {
+            recoveredUserName = String(wsQuery.data.name);
+          }
+          if (wsQuery.data.payload) {
+            const dbSnap = wsQuery.data.payload as CloudWorkspaceSnapshot;
+            if (dbSnap && Array.isArray(dbSnap.tasks)) {
+              if (isMockSeedTaskList(dbSnap.tasks)) {
+                // ticktick_workspace was accidentally overwritten by a new device's mock seed data!
+                wsWasMockOverwritten = true;
+              } else {
+                bestSnapshot = dbSnap;
+                sourceLabel = 'Supabase PostgreSQL';
+              }
+            }
+          }
+        }
+
+        // 2. Inspect public.tasks, public.lists, and public.pomodoro_sessions for personal rows
+        let mappedTableTasks: Task[] = [];
+        if (!tasksQuery.error && Array.isArray(tasksQuery.data) && tasksQuery.data.length > 0) {
+          mappedTableTasks = tasksQuery.data.map(
+            (row: Record<string, unknown>, idx: number) => ({
+              id: String(row.id),
+              title: String(row.name || row.title || 'Untitled'),
+              content: String(row.content || ''),
+              isNote: Boolean(row.is_note),
+              listId: String(row.list_id || 'inbox'),
+              status: (row.status as TaskStatus) || 'todo',
+              priority: (Number(row.priority) as Priority) || 0,
+              tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+              dueDate: row.due_date ? String(row.due_date).slice(0, 10) : undefined,
+              startDate: row.due_date ? String(row.due_date).slice(0, 10) : undefined,
+              isAllDay: Boolean(row.is_all_day ?? true),
+              durationMinutes: row.duration_minutes ? Number(row.duration_minutes) : undefined,
+              reminders: Array.isArray(row.reminders) ? (row.reminders as string[]) : [],
+              constantReminder: Boolean(row.constant_reminder),
+              emailReminder: Boolean(row.email_reminder),
+              estimatedPomos: Number(row.estimated_pomos || 0),
+              completedPomos: Number(row.completed_pomos || 0),
+              focusSeconds: Number(row.focus_seconds || 0),
+              subtasks: Array.isArray(row.subtasks) ? (row.subtasks as Task['subtasks']) : [],
+              attachments: Array.isArray(row.attachments)
+                ? (row.attachments as Task['attachments'])
+                : [],
+              comments: Array.isArray(row.comments) ? (row.comments as Task['comments']) : [],
+              activities: Array.isArray(row.activities)
+                ? (row.activities as Task['activities'])
+                : [],
+              isPinned: Boolean(row.is_pinned),
+              sortOrder: idx,
+              createdAt: String(row.created_at || new Date().toISOString()).slice(0, 10),
+              updatedAt: String(row.updated_at || new Date().toISOString()).slice(0, 10),
+            })
+          );
+        }
+
+        // Filter out untouched demo seed tasks so we can recover the user's personal tasks
+        const personalTableTasks = mappedTableTasks.filter(
+          (t) => !seedTaskIds.has(t.id) || seedTaskTitles.get(t.id) !== t.title
+        );
+
+        let personalTableLists: TaskList[] = [];
+        if (!listsQuery.error && Array.isArray(listsQuery.data) && listsQuery.data.length > 0) {
+          const allTableLists: TaskList[] = listsQuery.data.map(
+            (row: Record<string, unknown>, idx: number) => ({
+              id: String(row.id),
+              name: String(row.name || 'List'),
+              color: String(row.color || '#2563eb'),
+              emoji: row.emoji ? String(row.emoji) : undefined,
+              icon: 'list',
+              backgroundStyle: 'none',
+              viewMode: 'list',
+              isShared: false,
+              members: [],
+              sortOrder: idx,
+            })
+          );
+          personalTableLists = allTableLists.filter(
+            (l) => !seedListIds.has(l.id) || seedListNames.get(l.id) !== l.name
+          );
+        }
+
+        let personalTablePomos: PomodoroSession[] = [];
+        if (!pomoQuery.error && Array.isArray(pomoQuery.data) && pomoQuery.data.length > 0) {
+          const allTablePomos: PomodoroSession[] = pomoQuery.data.map(
+            (row: Record<string, unknown>) => ({
+              id: String(row.id),
+              taskId: row.task_id ? String(row.task_id) : undefined,
+              taskTitle: String(row.task_title || 'Focus Session'),
+              mode: row.mode === 'stopwatch' ? 'stopwatch' : 'pomo',
+              startTime: String(row.start_time || new Date().toISOString()),
+              endTime: String(row.end_time || new Date().toISOString()),
+              durationMinutes: Number(row.duration_minutes || 25),
+              note: String(row.note || ''),
+            })
+          );
+          personalTablePomos = allTablePomos.filter((p) => !seedPomoIds.has(p.id));
+        }
+
+        // If bestSnapshot is null (or ticktick_workspace was overwritten by mock data) and we found personal rows in tables:
+        if (!bestSnapshot && (personalTableTasks.length > 0 || personalTableLists.length > 0 || personalTablePomos.length > 0)) {
+          bestSnapshot = {
+            updatedAt: Date.now(),
+            userName: recoveredUserName,
+            preferences: recoveredUserName
+              ? { fullName: recoveredUserName, email: recoveredUserEmail }
+              : undefined,
+            tasks: personalTableTasks,
+            lists: personalTableLists,
+            folders: [],
+            sections: [],
+            tags: [],
+            habits: [],
+            pomodoroSessions: personalTablePomos,
+            countdowns: [],
+            customFilters: [],
+          };
+          sourceLabel = 'Supabase PostgreSQL (Recovered Personal Data)';
+        } else if (bestSnapshot && Array.isArray(bestSnapshot.tasks)) {
+          // Merge any personal tasks from public.tasks that might be missing from bestSnapshot
+          const existingTaskIds = new Set(bestSnapshot.tasks.map((t) => t.id));
+          const missingPersonalTasks = personalTableTasks.filter(
+            (t) => !existingTaskIds.has(t.id)
+          );
+          if (missingPersonalTasks.length > 0) {
+            bestSnapshot = {
+              ...bestSnapshot,
+              tasks: [...missingPersonalTasks, ...bestSnapshot.tasks],
+            };
+          }
+          if (personalTableLists.length > 0) {
+            const existingListIds = new Set((bestSnapshot.lists || []).map((l) => l.id));
+            const missingPersonalLists = personalTableLists.filter(
+              (l) => !existingListIds.has(l.id)
+            );
+            if (missingPersonalLists.length > 0) {
+              bestSnapshot = {
+                ...bestSnapshot,
+                lists: [...(bestSnapshot.lists || []), ...missingPersonalLists],
+              };
+            }
+          }
+          if (personalTablePomos.length > 0) {
+            const existingPomoIds = new Set(
+              (bestSnapshot.pomodoroSessions || []).map((p) => p.id)
+            );
+            const missingPersonalPomos = personalTablePomos.filter(
+              (p) => !existingPomoIds.has(p.id)
+            );
+            if (missingPersonalPomos.length > 0) {
+              bestSnapshot = {
+                ...bestSnapshot,
+                pomodoroSessions: [
+                  ...missingPersonalPomos,
+                  ...(bestSnapshot.pomodoroSessions || []),
+                ],
+              };
+            }
+          }
+        }
+
+        // 3. Check active Supabase Realtime Presence state & request live peer state
+        let channel = channelRef.current;
+        if (!channel) {
+          channel = setupRealtimeChannel();
+        }
+
+        if (channel) {
+          await channel.send({
+            type: 'broadcast',
+            event: 'request-workspace',
+            payload: { deviceId: deviceIdRef.current },
+          });
+          await new Promise((resolve) => setTimeout(resolve, 650));
+
+          const state = channel.presenceState<CloudWorkspaceSnapshot>();
+          Object.entries(state).forEach(([key, entries]) => {
+            if (key === deviceIdRef.current || !Array.isArray(entries)) return;
+            entries.forEach((entry) => {
+              if (
+                entry &&
+                Array.isArray(entry.tasks) &&
+                !isMockSeedTaskList(entry.tasks) &&
+                (!bestSnapshot || (entry.updatedAt || 0) >= (bestSnapshot.updatedAt || 0))
+              ) {
+                bestSnapshot = entry;
+                sourceLabel = 'Supabase Realtime Peer';
+              }
+            });
+          });
+        }
+
+        if (recoveredUserName) {
+          updatePreferences({
+            fullName: recoveredUserName,
+            ...(recoveredUserEmail ? { email: recoveredUserEmail } : {}),
+          });
+        }
+
+        const syncedTime = format(new Date(), 'HH:mm:ss');
+        setSupabaseLastSyncedAt(syncedTime);
+        setSupabaseStatus('connected');
+
+        if (bestSnapshot && Array.isArray(bestSnapshot.tasks)) {
+          applyRemoteSnapshot(bestSnapshot, options?.silent);
+          // If ticktick_workspace had been polluted by mock data, heal it immediately with the recovered personal snapshot
+          if (wsWasMockOverwritten) {
+            try {
+              await client.from('ticktick_workspace').upsert({
+                id: 'default',
+                name: bestSnapshot.userName || recoveredUserName || preferencesRef.current.fullName,
+                payload: bestSnapshot,
+                updated_at: new Date().toISOString(),
+              });
+            } catch {
+              // ignore
+            }
+          }
+          return {
+            ok: true,
+            message: `Pulled ${bestSnapshot.tasks.length} personal tasks from ${sourceLabel} at ${syncedTime}.`,
+          };
+        }
+
+        // If connecting on a new device that only had default mock seed data, never leave mock data on screen!
+        if (
+          (options?.isInitialConnect || wsWasMockOverwritten) &&
+          isMockSeedTaskList(tasksRef.current)
+        ) {
+          const cleanEmptySnapshot: CloudWorkspaceSnapshot = {
+            deviceId: deviceIdRef.current,
+            updatedAt: Date.now(),
+            userName: recoveredUserName || preferencesRef.current.fullName,
+            preferences: {
+              fullName: recoveredUserName || preferencesRef.current.fullName,
+              email: recoveredUserEmail || preferencesRef.current.email,
+              theme: preferencesRef.current.theme,
+              achievementScore: 0,
+            },
+            tasks: [],
+            lists: [],
+            folders: [],
+            sections: [],
+            tags: [],
+            habits: [],
+            pomodoroSessions: [],
+            countdowns: [],
+            customFilters: [],
+            templates: [],
+            calendarSubscriptions: [],
+          };
+          applyRemoteSnapshot(cleanEmptySnapshot, true);
+          if (!options?.silent) {
+            pushToast({
+              title: 'Connected to Personal Database',
+              description: 'Mock demo data cleared. Your personal cloud workspace is ready.',
+              kind: 'success',
+            });
+          }
+          return {
+            ok: true,
+            message: `Connected to Supabase Cloud at ${syncedTime} — mock demo data cleared for your personal workspace.`,
+          };
+        }
+
+        if (!options?.silent) {
+          pushToast({
+            title: 'Workspace is up to date',
+            description: `Connected to Supabase Cloud (${tasksRef.current.length} tasks)`,
+            kind: 'success',
+          });
+        }
+        return {
+          ok: true,
+          message: `Connected to Supabase Cloud — workspace is up to date (${tasksRef.current.length} tasks) at ${syncedTime}.`,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Pull failed';
+        setSupabaseStatus('error');
+        setSupabaseErrorMessage(msg);
+        return { ok: false, message: msg };
+      }
+    },
+    [
+      applyRemoteSnapshot,
+      isMockSeedTaskList,
+      pushToast,
+      seedListIds,
+      seedListNames,
+      seedPomoIds,
+      seedTaskIds,
+      seedTaskTitles,
+      setupRealtimeChannel,
+    ]
+  );
 
   useEffect(() => {
     const client = getSupabaseClient();
@@ -1860,6 +2295,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
     setupRealtimeChannel();
+    // Always pull personal data from Supabase on startup before allowing any local auto-push
+    hasCompletedInitialPullRef.current = false;
+    pullWorkspaceFromSupabase({ isInitialConnect: true, silent: true }).finally(() => {
+      hasCompletedInitialPullRef.current = true;
+    });
 
     return () => {
       if (channelRef.current) {
@@ -1867,9 +2307,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         channelRef.current = null;
       }
     };
-  }, [setupRealtimeChannel]);
+  }, [setupRealtimeChannel, pullWorkspaceFromSupabase]);
 
-  // Automatically broadcast local workspace edits to connected PC/Mobile peers
+  // Automatically broadcast local workspace edits to connected PC/Mobile peers & Supabase tables
   useEffect(() => {
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
@@ -1879,6 +2319,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isApplyingRemoteRef.current = false;
       return;
     }
+    // Never auto-push before the initial cloud pull finishes, and never auto-push default mock seed data!
+    if (!hasCompletedInitialPullRef.current) return;
+    if (isMockSeedTaskList(tasks)) return;
 
     const client = getSupabaseClient();
     if (!client || !channelRef.current) return;
@@ -1893,7 +2336,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           payload: snap,
         });
         setSupabaseLastSyncedAt(format(new Date(), 'HH:mm:ss'));
-        // Also persist to PostgreSQL ticktick_workspace table if available
+        // Persist to PostgreSQL ticktick_workspace table if available
         try {
           await client
             .from('ticktick_workspace')
@@ -1902,6 +2345,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await client
             .from('ticktick_workspace')
             .upsert({ id: 'default', payload: snap, updated_at: new Date().toISOString() });
+        }
+
+        // Also persist tasks to public.tasks so personal tasks are always backed up in individual rows
+        try {
+          if (tasks.length > 0) {
+            const richTaskRows = tasks.map((t) => ({
+              id: t.id,
+              name: t.title,
+              title: t.title,
+              content: t.content,
+              status: t.status,
+              priority: t.priority,
+              due_date: t.dueDate,
+              list_id: t.listId,
+              completed_pomos: t.completedPomos,
+              focus_seconds: t.focusSeconds,
+              activities: t.activities,
+              updated_at: new Date().toISOString(),
+            }));
+            const tRes = await client.from('tasks').upsert(richTaskRows);
+            if (tRes.error) {
+              await client.from('tasks').upsert(
+                tasks.map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  content: t.content,
+                  status: t.status,
+                  priority: t.priority,
+                  due_date: t.dueDate,
+                  list_id: t.listId,
+                  updated_at: new Date().toISOString(),
+                }))
+              );
+            }
+          }
+        } catch {
+          // Ignore if table does not exist
+        }
+
+        // Also persist Pomodoro & Stopwatch focus logs
+        try {
+          if (pomodoroSessions.length > 0) {
+            await client.from('pomodoro_sessions').upsert(
+              pomodoroSessions.map((s) => ({
+                id: s.id,
+                task_id: s.taskId || null,
+                task_title: s.taskTitle,
+                mode: s.mode,
+                start_time: s.startTime,
+                end_time: s.endTime,
+                duration_minutes: s.durationMinutes,
+                note: s.note,
+              }))
+            );
+          }
+        } catch {
+          // Ignore if table does not exist
         }
 
         // Also persist user profile name to profiles table if it exists
@@ -1936,6 +2436,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     calendarSubscriptions,
     preferences,
     buildSnapshot,
+    isMockSeedTaskList,
   ]);
 
   const connectSupabase = async (url: string, anonKey: string): Promise<boolean> => {
@@ -1947,6 +2448,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     setSupabaseStatus('syncing');
     setSupabaseErrorMessage(null);
+    hasCompletedInitialPullRef.current = false;
     try {
       const { error } = await client.auth.getSession();
       if (error) {
@@ -1955,17 +2457,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return false;
       }
       setupRealtimeChannel();
+      // Immediately pull the user's personal data from the database (and strip mock data if on a new device)
+      await pullWorkspaceFromSupabase({ isInitialConnect: true, silent: false });
+      hasCompletedInitialPullRef.current = true;
       setSupabaseStatus('connected');
       setSupabaseLastSyncedAt(format(new Date(), 'HH:mm:ss'));
       setIsDatabasePromptOpen(false);
       setDatabasePromptDismissed();
-      pushToast({
-        title: 'Connected to Supabase Cloud',
-        description: 'Live Realtime PC & Mobile sync enabled',
-        kind: 'success',
-      });
       return true;
     } catch (err) {
+      hasCompletedInitialPullRef.current = true;
       setSupabaseStatus('error');
       setSupabaseErrorMessage(
         err instanceof Error ? err.message : 'Failed to connect to Supabase'
@@ -1996,6 +2497,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSupabaseErrorMessage(null);
 
     try {
+      // Safety guard: if this device is still holding untouched mock seed data, pull personal data first instead of overwriting the cloud!
+      if (isMockSeedTaskList(tasks)) {
+        const pullRes = await pullWorkspaceFromSupabase({ isInitialConnect: true, silent: false });
+        if (pullRes.ok) {
+          return pullRes;
+        }
+      }
+
       const snap = buildSnapshot(Date.now());
       let channel = channelRef.current;
       if (!channel) {
@@ -2139,154 +2648,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
-      setSupabaseStatus('error');
-      setSupabaseErrorMessage(msg);
-      return { ok: false, message: msg };
-    }
-  };
-
-  const pullWorkspaceFromSupabase = async (): Promise<{ ok: boolean; message: string }> => {
-    const client = getSupabaseClient();
-    if (!client) {
-      return { ok: false, message: 'Supabase URL & Key are not configured yet.' };
-    }
-    setSupabaseStatus('syncing');
-    setSupabaseErrorMessage(null);
-
-    try {
-      let bestSnapshot: Partial<CloudWorkspaceSnapshot> | null = null;
-      let sourceLabel = 'Supabase Cloud';
-
-      // 1. Check PostgreSQL ticktick_workspace table if created
-      const wsQuery = await client
-        .from('ticktick_workspace')
-        .select('*')
-        .eq('id', 'default')
-        .maybeSingle();
-
-      if (!wsQuery.error && wsQuery.data) {
-        if (wsQuery.data.payload) {
-          const dbSnap = wsQuery.data.payload as CloudWorkspaceSnapshot;
-          if (dbSnap && Array.isArray(dbSnap.tasks)) {
-            bestSnapshot = dbSnap;
-            sourceLabel = 'Supabase PostgreSQL';
-          }
-        }
-        if (wsQuery.data.name) {
-          updatePreferences({ fullName: String(wsQuery.data.name) });
-        }
-      }
-
-      // Check profiles table for user display name
-      try {
-        const profRes = await client.from('profiles').select('*').eq('id', 'default').maybeSingle();
-        if (!profRes.error && profRes.data) {
-          const pName = profRes.data.full_name || profRes.data.name;
-          if (pName) updatePreferences({ fullName: String(pName) });
-        }
-      } catch {
-        // ignore
-      }
-
-      // 2. Check PostgreSQL tasks table if created
-      if (!bestSnapshot) {
-        const tasksQuery = await client
-          .from('tasks')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!tasksQuery.error && Array.isArray(tasksQuery.data) && tasksQuery.data.length > 0) {
-          const mapped: Task[] = tasksQuery.data.map(
-            (row: Record<string, unknown>, idx: number) => ({
-              id: String(row.id),
-              title: String(row.name || row.title || 'Untitled'),
-              content: String(row.content || ''),
-              isNote: Boolean(row.is_note),
-              listId: String(row.list_id || 'inbox'),
-              status: (row.status as TaskStatus) || 'todo',
-              priority: (Number(row.priority) as Priority) || 0,
-              tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
-              dueDate: row.due_date ? String(row.due_date).slice(0, 10) : undefined,
-              isAllDay: Boolean(row.is_all_day ?? true),
-              durationMinutes: row.duration_minutes ? Number(row.duration_minutes) : undefined,
-              reminders: Array.isArray(row.reminders) ? (row.reminders as string[]) : [],
-              constantReminder: Boolean(row.constant_reminder),
-              emailReminder: Boolean(row.email_reminder),
-              estimatedPomos: Number(row.estimated_pomos || 0),
-              completedPomos: Number(row.completed_pomos || 0),
-              focusSeconds: Number(row.focus_seconds || 0),
-              subtasks: Array.isArray(row.subtasks) ? (row.subtasks as Task['subtasks']) : [],
-              attachments: Array.isArray(row.attachments)
-                ? (row.attachments as Task['attachments'])
-                : [],
-              comments: Array.isArray(row.comments) ? (row.comments as Task['comments']) : [],
-              activities: Array.isArray(row.activities)
-                ? (row.activities as Task['activities'])
-                : [],
-              isPinned: Boolean(row.is_pinned),
-              sortOrder: idx,
-              createdAt: String(row.created_at || new Date().toISOString()).slice(0, 10),
-              updatedAt: String(row.updated_at || new Date().toISOString()).slice(0, 10),
-            })
-          );
-          bestSnapshot = { tasks: mapped, updatedAt: Date.now() };
-          sourceLabel = 'Supabase PostgreSQL';
-        }
-      }
-
-      // 3. Check active Supabase Realtime Presence state & request live peer state
-      let channel = channelRef.current;
-      if (!channel) {
-        channel = setupRealtimeChannel();
-      }
-
-      if (channel) {
-        await channel.send({
-          type: 'broadcast',
-          event: 'request-workspace',
-          payload: { deviceId: deviceIdRef.current },
-        });
-        await new Promise((resolve) => setTimeout(resolve, 650));
-
-        const state = channel.presenceState<CloudWorkspaceSnapshot>();
-        Object.entries(state).forEach(([key, entries]) => {
-          if (key === deviceIdRef.current || !Array.isArray(entries)) return;
-          entries.forEach((entry) => {
-            if (
-              entry &&
-              Array.isArray(entry.tasks) &&
-              (!bestSnapshot || (entry.updatedAt || 0) >= (bestSnapshot.updatedAt || 0))
-            ) {
-              bestSnapshot = entry;
-              sourceLabel = 'Supabase Realtime Peer';
-            }
-          });
-        });
-      }
-
-      const syncedTime = format(new Date(), 'HH:mm:ss');
-      setSupabaseLastSyncedAt(syncedTime);
-      setSupabaseStatus('connected');
-
-      if (bestSnapshot && Array.isArray(bestSnapshot.tasks)) {
-        applyRemoteSnapshot(bestSnapshot, false);
-        return {
-          ok: true,
-          message: `Pulled ${bestSnapshot.tasks.length} tasks from ${sourceLabel} at ${syncedTime}.`,
-        };
-      }
-
-      pushToast({
-        title: 'Workspace is up to date',
-        description: `Connected to Supabase Cloud (${tasks.length} tasks)`,
-        kind: 'success',
-      });
-      return {
-        ok: true,
-        message: `Connected to Supabase Cloud — workspace is up to date (${tasks.length} tasks) at ${syncedTime}.`,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Pull failed';
       setSupabaseStatus('error');
       setSupabaseErrorMessage(msg);
       return { ok: false, message: msg };

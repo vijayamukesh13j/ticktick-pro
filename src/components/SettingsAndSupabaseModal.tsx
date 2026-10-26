@@ -85,7 +85,7 @@ export const SettingsAndSupabaseModal: React.FC = () => {
     const ok = await connectSupabase(sbUrl, sbAnonKey);
     setSyncMessage(
       ok
-        ? 'Connected to Supabase successfully. You can now push or pull workspace rows.'
+        ? 'Connected to Supabase and pulled your personal workspace data automatically.'
         : 'Could not verify Supabase credentials. Check URL and Anon Key.'
     );
   };
