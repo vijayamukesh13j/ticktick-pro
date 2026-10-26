@@ -17,6 +17,8 @@ import { soundEngine } from './soundEngine';
 
 export interface BackgroundTimerState {
   isRunning: boolean;
+  pomoRunning: boolean;
+  stopwatchRunning: boolean;
   mode: 'pomo' | 'stopwatch';
   pomoPhase: 'work' | 'short_break' | 'long_break';
   targetEndTimestamp: number | null; // For Pomodoro countdown
@@ -216,94 +218,94 @@ class BackgroundTimerEngine {
   }
 
   /**
-   * Pauses the timer and stores current remaining/elapsed seconds.
+   * Pauses the timer (or a specific mode) and stores current remaining/elapsed seconds.
    */
-  public pauseTimer() {
-    const isRunning = localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true';
-    if (!isRunning) return;
-
+  public pauseTimer(mode?: 'pomo' | 'stopwatch') {
     this.sync();
-    localStorage.setItem(STORAGE_KEYS.RUNNING, 'false');
-    localStorage.removeItem(STORAGE_KEYS.TARGET_END);
-    localStorage.removeItem(STORAGE_KEYS.STOPWATCH_BASE);
 
-    this.releaseWakeLock();
-    this.cancelServiceWorkerAlert();
+    if (!mode || mode === 'pomo') {
+      localStorage.removeItem(STORAGE_KEYS.TARGET_END);
+      this.cancelServiceWorkerAlert();
+    }
+    if (!mode || mode === 'stopwatch') {
+      localStorage.removeItem(STORAGE_KEYS.STOPWATCH_BASE);
+    }
 
-    if (this.worker) {
-      this.worker.postMessage('STOP');
+    const stillHasPomo = Boolean(localStorage.getItem(STORAGE_KEYS.TARGET_END));
+    const stillHasStopwatch = Boolean(localStorage.getItem(STORAGE_KEYS.STOPWATCH_BASE));
+    const anyRunning = stillHasPomo || stillHasStopwatch;
+
+    localStorage.setItem(STORAGE_KEYS.RUNNING, anyRunning ? 'true' : 'false');
+
+    if (!anyRunning) {
+      this.releaseWakeLock();
+      if (this.worker) {
+        this.worker.postMessage('STOP');
+      }
     }
   }
 
   /**
-   * Resets the timer state.
+   * Resets the timer state (or a specific mode).
    */
-  public resetTimer(defaultSeconds: number) {
-    localStorage.setItem(STORAGE_KEYS.RUNNING, 'false');
-    localStorage.setItem(STORAGE_KEYS.SECONDS_LEFT, String(defaultSeconds));
-    localStorage.setItem(STORAGE_KEYS.STOPWATCH_SECS, '0');
-    localStorage.removeItem(STORAGE_KEYS.TARGET_END);
-    localStorage.removeItem(STORAGE_KEYS.STOPWATCH_BASE);
-
-    this.releaseWakeLock();
-    this.cancelServiceWorkerAlert();
-
-    if (this.worker) {
-      this.worker.postMessage('STOP');
+  public resetTimer(defaultSeconds: number, mode?: 'pomo' | 'stopwatch') {
+    if (!mode || mode === 'pomo') {
+      localStorage.setItem(STORAGE_KEYS.SECONDS_LEFT, String(defaultSeconds));
+      localStorage.removeItem(STORAGE_KEYS.TARGET_END);
+      this.cancelServiceWorkerAlert();
     }
-    if (this.onTickCallback) {
-      this.onTickCallback(defaultSeconds, 0);
+    if (!mode || mode === 'stopwatch') {
+      localStorage.setItem(STORAGE_KEYS.STOPWATCH_SECS, '0');
+      localStorage.removeItem(STORAGE_KEYS.STOPWATCH_BASE);
     }
+
+    const stillHasPomo = Boolean(localStorage.getItem(STORAGE_KEYS.TARGET_END));
+    const stillHasStopwatch = Boolean(localStorage.getItem(STORAGE_KEYS.STOPWATCH_BASE));
+    const anyRunning = stillHasPomo || stillHasStopwatch;
+
+    localStorage.setItem(STORAGE_KEYS.RUNNING, anyRunning ? 'true' : 'false');
+
+    if (!anyRunning) {
+      this.releaseWakeLock();
+      if (this.worker) {
+        this.worker.postMessage('STOP');
+      }
+    }
+
+    this.sync();
   }
 
   /**
    * Synchronizes timer calculation against absolute wall-clock timestamps.
+   * Supports both Pomodoro and Stopwatch running independently.
    */
   public sync() {
-    const isRunning = localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true';
-    const mode = (localStorage.getItem(STORAGE_KEYS.MODE) as 'pomo' | 'stopwatch') || 'pomo';
+    const now = Date.now();
+    const targetEndStr = localStorage.getItem(STORAGE_KEYS.TARGET_END);
+    const baseTimestampStr = localStorage.getItem(STORAGE_KEYS.STOPWATCH_BASE);
 
-    if (!isRunning) {
-      const storedSecs = Number(localStorage.getItem(STORAGE_KEYS.SECONDS_LEFT)) || 0;
-      const storedStopwatch = Number(localStorage.getItem(STORAGE_KEYS.STOPWATCH_SECS)) || 0;
-      if (this.onTickCallback) {
-        this.onTickCallback(storedSecs, storedStopwatch);
-      }
-      return;
+    let remainingSeconds = Number(localStorage.getItem(STORAGE_KEYS.SECONDS_LEFT)) || 0;
+    let elapsedSeconds = Number(localStorage.getItem(STORAGE_KEYS.STOPWATCH_SECS)) || 0;
+
+    if (targetEndStr) {
+      const targetEnd = Number(targetEndStr);
+      remainingSeconds = Math.max(0, Math.ceil((targetEnd - now) / 1000));
+      localStorage.setItem(STORAGE_KEYS.SECONDS_LEFT, String(remainingSeconds));
     }
 
-    const now = Date.now();
-
-    if (mode === 'pomo') {
-      const targetEndStr = localStorage.getItem(STORAGE_KEYS.TARGET_END);
-      if (!targetEndStr) return;
-
-      const targetEnd = Number(targetEndStr);
-      const remainingSeconds = Math.max(0, Math.ceil((targetEnd - now) / 1000));
-
-      localStorage.setItem(STORAGE_KEYS.SECONDS_LEFT, String(remainingSeconds));
-
-      if (this.onTickCallback) {
-        this.onTickCallback(remainingSeconds, 0);
-      }
-
-      // Check if timer finished (either in foreground or background)
-      if (remainingSeconds === 0 && !this.isHandlingComplete) {
-        this.isHandlingComplete = true;
-        this.handlePomodoroFinished();
-      }
-    } else {
-      const baseTimestampStr = localStorage.getItem(STORAGE_KEYS.STOPWATCH_BASE);
-      if (!baseTimestampStr) return;
-
+    if (baseTimestampStr) {
       const baseTimestamp = Number(baseTimestampStr);
-      const elapsedSeconds = Math.max(0, Math.floor((now - baseTimestamp) / 1000));
-
+      elapsedSeconds = Math.max(0, Math.floor((now - baseTimestamp) / 1000));
       localStorage.setItem(STORAGE_KEYS.STOPWATCH_SECS, String(elapsedSeconds));
+    }
 
-      if (this.onTickCallback) {
-        this.onTickCallback(0, elapsedSeconds);
-      }
+    if (this.onTickCallback) {
+      this.onTickCallback(remainingSeconds, elapsedSeconds);
+    }
+
+    if (targetEndStr && remainingSeconds === 0 && !this.isHandlingComplete) {
+      this.isHandlingComplete = true;
+      this.handlePomodoroFinished();
     }
   }
 
@@ -311,7 +313,7 @@ class BackgroundTimerEngine {
    * Handles timer completion: sounds alarm, triggers OS notification & calls callback.
    */
   private handlePomodoroFinished() {
-    this.pauseTimer();
+    this.pauseTimer('pomo');
     soundEngine.playPomodoroCompleteAlarm();
 
     sendDeviceNotification('🎉 Focus Session Finished!', {
@@ -345,7 +347,6 @@ class BackgroundTimerEngine {
    * Gets the currently persisted state on initial app mount.
    */
   public getInitialState(defaultPomoSeconds: number): BackgroundTimerState {
-    const isRunning = localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true';
     const mode = (localStorage.getItem(STORAGE_KEYS.MODE) as 'pomo' | 'stopwatch') || 'pomo';
     const pomoPhase =
       (localStorage.getItem(STORAGE_KEYS.PHASE) as 'work' | 'short_break' | 'long_break') || 'work';
@@ -354,20 +355,26 @@ class BackgroundTimerEngine {
     const stopwatchBaseStr = localStorage.getItem(STORAGE_KEYS.STOPWATCH_BASE);
     const stopwatchBaseTimestamp = stopwatchBaseStr ? Number(stopwatchBaseStr) : null;
 
+    const pomoRunning = Boolean(targetEndTimestamp);
+    const stopwatchRunning = Boolean(stopwatchBaseTimestamp);
+    const isRunning =
+      localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true' && (pomoRunning || stopwatchRunning);
+
     let secondsLeft = Number(localStorage.getItem(STORAGE_KEYS.SECONDS_LEFT)) || defaultPomoSeconds;
     let stopwatchSeconds = Number(localStorage.getItem(STORAGE_KEYS.STOPWATCH_SECS)) || 0;
 
-    if (isRunning) {
-      const now = Date.now();
-      if (mode === 'pomo' && targetEndTimestamp) {
-        secondsLeft = Math.max(0, Math.ceil((targetEndTimestamp - now) / 1000));
-      } else if (mode === 'stopwatch' && stopwatchBaseTimestamp) {
-        stopwatchSeconds = Math.max(0, Math.floor((now - stopwatchBaseTimestamp) / 1000));
-      }
+    const now = Date.now();
+    if (pomoRunning && targetEndTimestamp) {
+      secondsLeft = Math.max(0, Math.ceil((targetEndTimestamp - now) / 1000));
+    }
+    if (stopwatchRunning && stopwatchBaseTimestamp) {
+      stopwatchSeconds = Math.max(0, Math.floor((now - stopwatchBaseTimestamp) / 1000));
     }
 
     return {
       isRunning,
+      pomoRunning,
+      stopwatchRunning,
       mode,
       pomoPhase,
       targetEndTimestamp,

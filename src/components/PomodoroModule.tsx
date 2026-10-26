@@ -28,6 +28,8 @@ export const PomodoroModule: React.FC = () => {
     pomoPhase,
     setPomoPhase,
     pomoRunning,
+    pomoTimerRunning,
+    stopwatchRunning,
     setPomoRunning,
     pomoSecondsLeft,
     stopwatchSeconds,
@@ -142,34 +144,40 @@ export const PomodoroModule: React.FC = () => {
         }`}
       >
         <div className="w-full max-w-md surface-card rounded-2xl p-4 sm:p-6 flex flex-col items-center space-y-4 sm:space-y-5">
-          {/* Mode Switcher: Pomo vs Stopwatch + Timer Settings */}
+          {/* Mode Switcher: Pomo vs Stopwatch + Timer Settings (Switching tabs NEVER stops a running timer) */}
           <div className="w-full flex items-center justify-between">
             <div className="inline-flex bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/70">
               <button
-                onClick={() => {
-                  setPomoRunning(false);
-                  setPomoMode('pomo');
-                }}
-                className={`px-3.5 py-1 rounded-md text-xs font-semibold ${
+                onClick={() => setPomoMode('pomo')}
+                className={`px-3.5 py-1 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 ${
                   pomoMode === 'pomo'
                     ? 'bg-white text-zinc-900 shadow-2xs'
                     : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
-                Pomodoro
+                <span>Pomodoro</span>
+                {pomoTimerRunning && (
+                  <span
+                    data-testid="pomo-running-indicator"
+                    className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"
+                  />
+                )}
               </button>
               <button
-                onClick={() => {
-                  setPomoRunning(false);
-                  setPomoMode('stopwatch');
-                }}
-                className={`px-3.5 py-1 rounded-md text-xs font-semibold ${
+                onClick={() => setPomoMode('stopwatch')}
+                className={`px-3.5 py-1 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 ${
                   pomoMode === 'stopwatch'
                     ? 'bg-white text-zinc-900 shadow-2xs'
                     : 'text-zinc-500 hover:text-zinc-900'
                 }`}
               >
-                Stopwatch
+                <span>Stopwatch</span>
+                {stopwatchRunning && (
+                  <span
+                    data-testid="stopwatch-running-indicator"
+                    className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"
+                  />
+                )}
               </button>
             </div>
 
@@ -184,7 +192,7 @@ export const PomodoroModule: React.FC = () => {
 
           {/* Phase Pills for Pomodoro Mode */}
           {pomoMode === 'pomo' && (
-            <div className="flex flex-wrap sm:flex-nowrap justify-center items-center gap-1.5 font-mono-num">
+            <div className="flex flex-wrap sm:flex-nowrap justify-center items-center gap-1.5 font-mono-num animate-view-switch">
               {(
                 [
                   ['work', `Focus (${preferences.pomoDuration}m)`],
@@ -194,10 +202,7 @@ export const PomodoroModule: React.FC = () => {
               ).map(([phaseId, label]) => (
                 <button
                   key={phaseId}
-                  onClick={() => {
-                    setPomoRunning(false);
-                    setPomoPhase(phaseId);
-                  }}
+                  onClick={() => setPomoPhase(phaseId)}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-medium border ${
                     pomoPhase === phaseId
                       ? 'bg-zinc-900 text-white border-zinc-900 font-semibold'
@@ -234,39 +239,173 @@ export const PomodoroModule: React.FC = () => {
             </select>
           </div>
 
-          {/* Circular Progress Dial */}
-          <div className="relative w-48 h-48 sm:w-56 sm:h-56 md:w-60 md:h-60 flex items-center justify-center">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 260 260">
-              <circle
-                cx="130"
-                cy="130"
-                r={circleRadius}
-                stroke="#f4f4f5"
-                strokeWidth="8"
-                fill="none"
-              />
-              <circle
-                cx="130"
-                cy="130"
-                r={circleRadius}
-                stroke={pomoPhase === 'work' ? '#18181b' : '#10b981'}
-                strokeWidth="8"
-                strokeLinecap="round"
-                fill="none"
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                className="transition-all duration-300"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-              <span className="text-4xl sm:text-5xl font-bold font-mono-num tracking-tight text-zinc-900">
-                {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-              </span>
-              <span className="text-xs font-medium text-zinc-400 mt-1 sm:mt-1.5">
-                {pomoRunning ? 'Deep work in progress' : 'Ready to focus'}
-              </span>
+          {/* Distinct Animated Dial: Pomodoro Orbital Breathing Dial vs Stopwatch 60-Tick Chronograph */}
+          {pomoMode === 'pomo' ? (
+            <div
+              data-testid="pomo-timer-dial"
+              className="relative w-48 h-48 sm:w-56 sm:h-56 md:w-60 md:h-60 flex items-center justify-center animate-view-switch"
+            >
+              {/* Breathing Aura Ring when Pomodoro is running */}
+              {pomoTimerRunning && (
+                <div
+                  className={`absolute inset-3 rounded-full pointer-events-none animate-pomo-breathe ${
+                    pomoPhase === 'work' ? 'bg-blue-500/15' : 'bg-emerald-500/15'
+                  }`}
+                />
+              )}
+
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 260 260">
+                {/* Inner decorative dashed ring */}
+                <circle
+                  cx="130"
+                  cy="130"
+                  r={circleRadius - 14}
+                  stroke="#e4e4e7"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 6"
+                  fill="none"
+                />
+                {/* Track ring */}
+                <circle
+                  cx="130"
+                  cy="130"
+                  r={circleRadius}
+                  stroke="#f4f4f5"
+                  strokeWidth="8"
+                  fill="none"
+                />
+                {/* Countdown progress arc */}
+                <circle
+                  cx="130"
+                  cy="130"
+                  r={circleRadius}
+                  stroke={pomoPhase === 'work' ? '#2563eb' : '#10b981'}
+                  strokeWidth="8"
+                  strokeLinecap="round"
+                  fill="none"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeDashoffset}
+                  className="transition-all duration-500"
+                />
+                {/* Glowing Orbital Comet Tip */}
+                {(() => {
+                  const angleRad = progressRatio * 2 * Math.PI;
+                  const tipX = 130 + circleRadius * Math.cos(angleRad);
+                  const tipY = 130 + circleRadius * Math.sin(angleRad);
+                  return (
+                    <g>
+                      {pomoTimerRunning && (
+                        <circle
+                          cx={tipX}
+                          cy={tipY}
+                          r="9"
+                          fill={pomoPhase === 'work' ? '#3b82f6' : '#10b981'}
+                          opacity="0.3"
+                        />
+                      )}
+                      <circle
+                        cx={tipX}
+                        cy={tipY}
+                        r="5"
+                        fill={pomoPhase === 'work' ? '#2563eb' : '#10b981'}
+                        stroke="#ffffff"
+                        strokeWidth="2"
+                      />
+                    </g>
+                  );
+                })()}
+              </svg>
+
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-blue-600 mb-1">
+                  {pomoPhase === 'work' ? 'Countdown Timer' : 'Break Timer'}
+                </span>
+                <span className="text-4xl sm:text-5xl font-bold font-mono-num tracking-tight text-zinc-900">
+                  {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+                </span>
+                <span className="text-xs font-medium text-zinc-400 mt-1 sm:mt-1.5 flex items-center gap-1.5">
+                  {pomoTimerRunning && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping" />
+                  )}
+                  {pomoTimerRunning ? 'Deep work in progress' : 'Ready to focus'}
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div
+              data-testid="stopwatch-dial"
+              className="relative w-48 h-48 sm:w-56 sm:h-56 md:w-60 md:h-60 flex items-center justify-center animate-view-switch"
+            >
+              {/* Expanding Sonar Ripple Ring when Stopwatch is running */}
+              {stopwatchRunning && (
+                <div className="absolute inset-4 rounded-full border-2 border-emerald-500/40 pointer-events-none animate-stopwatch-ripple" />
+              )}
+
+              <svg className="w-full h-full" viewBox="0 0 260 260">
+                {/* 60 Radial Chronograph Second Ticks */}
+                {Array.from({ length: 60 }, (_, idx) => {
+                  const angleDeg = idx * 6 - 90;
+                  const angleRad = (angleDeg * Math.PI) / 180;
+                  const isMajor = idx % 5 === 0;
+                  const outerR = circleRadius + 4;
+                  const innerR = isMajor ? circleRadius - 8 : circleRadius - 3;
+                  const x1 = 130 + innerR * Math.cos(angleRad);
+                  const y1 = 130 + innerR * Math.sin(angleRad);
+                  const x2 = 130 + outerR * Math.cos(angleRad);
+                  const y2 = 130 + outerR * Math.sin(angleRad);
+                  const activeSecond = stopwatchSeconds % 60;
+                  const isLit = stopwatchRunning
+                    ? idx <= activeSecond
+                    : stopwatchSeconds > 0 && idx <= activeSecond;
+
+                  return (
+                    <line
+                      key={idx}
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                      stroke={isLit ? '#10b981' : isMajor ? '#d4d4d8' : '#e4e4e7'}
+                      strokeWidth={isMajor ? '2.5' : '1.5'}
+                      strokeLinecap="round"
+                    />
+                  );
+                })}
+
+                {/* Sweeping Chronograph Radar Hand when running */}
+                {stopwatchRunning && (
+                  <g className="animate-stopwatch-sweep">
+                    <line
+                      x1="130"
+                      y1="130"
+                      x2="130"
+                      y2={130 - (circleRadius - 14)}
+                      stroke="#10b981"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      opacity="0.65"
+                    />
+                    <circle cx="130" cy={130 - (circleRadius - 14)} r="3.5" fill="#10b981" />
+                  </g>
+                )}
+              </svg>
+
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-600 mb-1">
+                  Chronograph
+                </span>
+                <span className="text-4xl sm:text-5xl font-bold font-mono-num tracking-tight text-zinc-900">
+                  {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+                </span>
+                <span className="text-xs font-medium text-zinc-400 mt-1 sm:mt-1.5 flex items-center gap-1.5">
+                  {stopwatchRunning && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  )}
+                  {stopwatchRunning ? 'Stopwatch counting up' : 'Ready to focus'}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Controls: Start / Pause / Reset / Complete & Log */}
           <div className="flex items-center gap-2.5">

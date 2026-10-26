@@ -28,6 +28,8 @@ export const NavigationRail: React.FC = () => {
     setIsInstallModalOpen,
     openSettingsTab,
     pomoRunning,
+    pomoTimerRunning,
+    stopwatchRunning,
     pomoMode,
     pomoSecondsLeft,
     stopwatchSeconds,
@@ -77,7 +79,11 @@ export const NavigationRail: React.FC = () => {
       icon: <Timer className="w-[18px] h-[18px]" strokeWidth={1.75} />,
       badge: pomoRunning
         ? formatTimer(pomoMode === 'pomo' ? pomoSecondsLeft : stopwatchSeconds)
-        : undefined,
+        : pomoTimerRunning
+          ? formatTimer(pomoSecondsLeft)
+          : stopwatchRunning
+            ? formatTimer(stopwatchSeconds)
+            : undefined,
     },
     {
       id: 'habits',

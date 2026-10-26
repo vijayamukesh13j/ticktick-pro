@@ -356,8 +356,9 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
         .click();
     }
 
-    // Switch to Stopwatch mode
+    // Switch to Stopwatch mode & verify Stopwatch chronograph dial animation
     await page.getByRole('button', { name: 'Stopwatch' }).first().click();
+    await expect(page.getByTestId('stopwatch-dial')).toBeVisible();
     await page.getByRole('button', { name: /Start Focus/i }).click();
 
     // Verify localStorage has the wall-clock base timestamp
@@ -376,6 +377,17 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
 
     // Verify stopwatch immediately displays at least 20 seconds without pausing
     await expect(page.locator('.surface-card').getByText(/00:2/)).toBeVisible();
+
+    // Click Pomodoro tab while Stopwatch is running — verify Stopwatch does NOT stop!
+    await page.getByRole('button', { name: 'Pomodoro', exact: true }).first().click();
+    await expect(page.getByTestId('pomo-timer-dial')).toBeVisible();
+    await expect(page.getByTestId('stopwatch-running-indicator')).toBeVisible();
+
+    // Switch back to Stopwatch and verify it is still running at >= 20 seconds
+    await page.getByRole('button', { name: 'Stopwatch', exact: true }).first().click();
+    await expect(page.getByTestId('stopwatch-dial')).toBeVisible();
+    await expect(page.locator('.surface-card').getByText(/00:2/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Pause/i })).toBeVisible();
 
     // Reset stopwatch
     await page.locator('button[title="Reset Timer"]').click();
@@ -413,6 +425,14 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
       // 5. Verify it navigated to Pomodoro module in Stopwatch mode focusing on this task
       await expect(page.getByText('Focusing On Task')).toBeVisible();
       await expect(page.locator('select').filter({ hasText: 'Task Without Pomo Estimate' })).toBeVisible();
+
+      // 6. Verify starting the Stopwatch recorded an activity in the task's Activity Log
+      await page
+        .locator('aside[aria-label="Primary Module Navigation"] button[aria-label="Tasks"]')
+        .click();
+      await page.getByText('Task Without Pomo Estimate').first().click();
+      await page.getByRole('button', { name: /Activity Log/i }).click();
+      await expect(page.getByText('Started Stopwatch focus session')).toBeVisible();
     }
   });
 

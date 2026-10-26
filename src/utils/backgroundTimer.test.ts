@@ -65,4 +65,19 @@ describe('BackgroundTimerEngine', () => {
     expect(localStorage.getItem('ticktick_timer_stopwatch_secs')).toBe('0');
     expect(localStorage.getItem('ticktick_timer_target_end')).toBeNull();
   });
+
+  it('keeps stopwatch running when pomodoro mode is inspected or reset independently', () => {
+    backgroundTimerEngine.startStopwatch(30);
+    expect(localStorage.getItem('ticktick_timer_stopwatch_base')).not.toBeNull();
+
+    // Resetting only pomo mode does not stop or reset the running stopwatch
+    backgroundTimerEngine.resetTimer(1500, 'pomo');
+    expect(localStorage.getItem('ticktick_timer_stopwatch_base')).not.toBeNull();
+    expect(localStorage.getItem('ticktick_timer_running')).toBe('true');
+
+    const state = backgroundTimerEngine.getInitialState(1500);
+    expect(state.stopwatchRunning).toBe(true);
+    expect(state.pomoRunning).toBe(false);
+    expect(state.stopwatchSeconds).toBeGreaterThanOrEqual(30);
+  });
 });

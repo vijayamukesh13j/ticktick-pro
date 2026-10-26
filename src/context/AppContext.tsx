@@ -183,6 +183,8 @@ interface AppContextValue {
   pomoPhase: 'work' | 'short_break' | 'long_break';
   setPomoPhase: (p: 'work' | 'short_break' | 'long_break') => void;
   pomoRunning: boolean;
+  pomoTimerRunning: boolean;
+  stopwatchRunning: boolean;
   setPomoRunning: (r: boolean) => void;
   pomoSecondsLeft: number;
   stopwatchSeconds: number;
@@ -486,7 +488,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
   const [pomoMode, setPomoModeState] = useState<'pomo' | 'stopwatch'>(initialTimerState.mode);
   const [pomoPhase, setPomoPhaseState] = useState<'work' | 'short_break' | 'long_break'>(initialTimerState.pomoPhase);
-  const [pomoRunning, setPomoRunningState] = useState(initialTimerState.isRunning);
+  const [pomoTimerRunning, setPomoTimerRunning] = useState<boolean>(initialTimerState.pomoRunning);
+  const [stopwatchRunning, setStopwatchRunning] = useState<boolean>(initialTimerState.stopwatchRunning);
+  const pomoRunning = pomoMode === 'pomo' ? pomoTimerRunning : stopwatchRunning;
+  const anyTimerRunning = pomoTimerRunning || stopwatchRunning;
   const [pomoSecondsLeft, setPomoSecondsLeft] = useState(initialTimerState.secondsLeft);
   const [stopwatchSeconds, setStopwatchSeconds] = useState(initialTimerState.stopwatchSeconds);
   const [activePomoTaskId, setActivePomoTaskId] = useState<string | null>('task-1');
@@ -499,6 +504,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   pomoPhaseRef.current = pomoPhase;
   const pomoRunningRef = useRef(pomoRunning);
   pomoRunningRef.current = pomoRunning;
+  const pomoTimerRunningRef = useRef(pomoTimerRunning);
+  pomoTimerRunningRef.current = pomoTimerRunning;
+  const stopwatchRunningRef = useRef(stopwatchRunning);
+  stopwatchRunningRef.current = stopwatchRunning;
   const pomoSecondsLeftRef = useRef(pomoSecondsLeft);
   pomoSecondsLeftRef.current = pomoSecondsLeft;
   const stopwatchSecondsRef = useRef(stopwatchSeconds);
@@ -511,21 +520,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   preferencesRef.current = preferences;
   const updateTaskRef = useRef<(id: string, patch: Partial<Task>, note?: string) => void>(() => {});
 
-  // Handle preference duration adjustments when timer is idle
+  // Handle preference duration adjustments when Pomodoro timer is idle
   useEffect(() => {
-    if (!pomoRunning) {
+    if (!pomoTimerRunning) {
       if (pomoPhase === 'work') {
         const secs = preferences.pomoDuration * 60;
         setPomoSecondsLeft(secs);
-        backgroundTimerEngine.resetTimer(secs);
+        backgroundTimerEngine.resetTimer(secs, 'pomo');
       } else if (pomoPhase === 'short_break') {
         const secs = preferences.shortBreakDuration * 60;
         setPomoSecondsLeft(secs);
-        backgroundTimerEngine.resetTimer(secs);
+        backgroundTimerEngine.resetTimer(secs, 'pomo');
       } else {
         const secs = preferences.longBreakDuration * 60;
         setPomoSecondsLeft(secs);
-        backgroundTimerEngine.resetTimer(secs);
+        backgroundTimerEngine.resetTimer(secs, 'pomo');
       }
     }
   }, [
@@ -533,23 +542,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     preferences.pomoDuration,
     preferences.shortBreakDuration,
     preferences.longBreakDuration,
-    pomoRunning,
+    pomoTimerRunning,
   ]);
 
   useEffect(() => {
-    if (pomoRunning && activeWhiteNoise !== 'none') {
+    if (anyTimerRunning && activeWhiteNoise !== 'none') {
       soundEngine.startWhiteNoise(activeWhiteNoise, whiteNoiseVolume);
     } else {
       soundEngine.stopWhiteNoise();
     }
     return () => {
-      if (!pomoRunning) soundEngine.stopWhiteNoise();
+      if (!anyTimerRunning) soundEngine.stopWhiteNoise();
     };
-  }, [pomoRunning, activeWhiteNoise, whiteNoiseVolume]);
+  }, [anyTimerRunning, activeWhiteNoise, whiteNoiseVolume]);
 
   const setActiveWhiteNoise = (id: WhiteNoiseId) => {
     setActiveWhiteNoiseState(id);
-    if (pomoRunning) {
+    if (anyTimerRunning) {
       soundEngine.startWhiteNoise(id, whiteNoiseVolume);
     }
   };
@@ -561,9 +570,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Complete current Pomodoro / Stopwatch session
   const completeCurrentPomoSession = useCallback(
-    (note = '') => {
+    (note = '', completedMode?: 'pomo' | 'stopwatch') => {
       const now = new Date();
-      const currentMode = pomoModeRef.current;
+      const currentMode = completedMode || pomoModeRef.current;
       const currentSeconds = pomoSecondsLeftRef.current;
       const currentStopwatch = stopwatchSecondsRef.current;
       const prefs = preferencesRef.current;
@@ -588,7 +597,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         startTime: new Date(now.getTime() - elapsedMinutes * 60 * 1000).toISOString(),
         endTime: now.toISOString(),
         durationMinutes: elapsedMinutes,
-        note: note || `Focused for ${elapsedMinutes} minutes`,
+        note:
+          note ||
+          `Focused for ${elapsedMinutes}m (${currentMode === 'stopwatch' ? 'Stopwatch' : 'Pomodoro'})`,
         whiteNoiseUsed: activeWhiteNoise !== 'none' ? activeWhiteNoise : undefined,
       };
 
@@ -601,7 +612,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             completedPomos: targetTask.completedPomos + 1,
             focusSeconds: targetTask.focusSeconds + elapsedMinutes * 60,
           },
-          `Logged ${elapsedMinutes}m Pomodoro focus session`
+          `Logged ${elapsedMinutes}m ${currentMode === 'stopwatch' ? 'Stopwatch' : 'Pomodoro'} focus session`
         );
       }
 
@@ -619,10 +630,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         kind: 'success',
       });
 
-      // Reset timer state cleanly
-      setPomoRunningState(false);
-      soundEngine.stopWhiteNoise();
+      // Reset only the completed mode cleanly without stopping the other mode
       if (currentMode === 'pomo') {
+        setPomoTimerRunning(false);
         const defaultSecs =
           pomoPhaseRef.current === 'work'
             ? prefs.pomoDuration * 60
@@ -630,97 +640,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ? prefs.shortBreakDuration * 60
               : prefs.longBreakDuration * 60;
         setPomoSecondsLeft(defaultSecs);
-        backgroundTimerEngine.resetTimer(defaultSecs);
+        backgroundTimerEngine.resetTimer(defaultSecs, 'pomo');
+        if (!stopwatchRunningRef.current) {
+          soundEngine.stopWhiteNoise();
+        }
       } else {
+        setStopwatchRunning(false);
         setStopwatchSeconds(0);
-        backgroundTimerEngine.resetTimer(0);
+        backgroundTimerEngine.resetTimer(0, 'stopwatch');
+        if (!pomoTimerRunningRef.current) {
+          soundEngine.stopWhiteNoise();
+        }
       }
     },
     [activeWhiteNoise, pushToast]
   );
 
-  // Subscribe to Wall-Clock Background Timer Engine
+  // Subscribe to Wall-Clock Background Timer Engine (Updates BOTH Pomodoro & Stopwatch simultaneously)
   useEffect(() => {
     const unsubscribe = backgroundTimerEngine.subscribe(
       (remaining, elapsed) => {
-        if (pomoModeRef.current === 'pomo') {
-          setPomoSecondsLeft(remaining);
-        } else {
-          setStopwatchSeconds(elapsed);
-        }
+        setPomoSecondsLeft(remaining);
+        setStopwatchSeconds(elapsed);
       },
       () => {
-        completeCurrentPomoSession('Completed full scheduled session');
+        completeCurrentPomoSession('Completed full scheduled session', 'pomo');
       }
     );
     return () => unsubscribe();
   }, [completeCurrentPomoSession]);
 
   const setPomoRunning = useCallback((running: boolean) => {
-    setPomoRunningState(running);
-    if (running) {
-      if (pomoModeRef.current === 'pomo') {
-        const targetTask = tasksRef.current.find(
-          (t) => t.id === activePomoTaskIdRef.current
-        );
+    const mode = pomoModeRef.current;
+    const targetTask = tasksRef.current.find((t) => t.id === activePomoTaskIdRef.current);
+
+    if (mode === 'pomo') {
+      setPomoTimerRunning(running);
+      if (running) {
         backgroundTimerEngine.startPomodoro(
           pomoSecondsLeftRef.current,
           pomoPhaseRef.current,
           targetTask?.title || 'Deep Focus Session'
         );
+        if (targetTask) {
+          updateTaskRef.current(
+            targetTask.id,
+            {},
+            `Started Pomodoro timer (${pomoPhaseRef.current === 'work' ? `${preferencesRef.current.pomoDuration}m Focus` : 'Break'})`
+          );
+        }
       } else {
-        backgroundTimerEngine.startStopwatch(stopwatchSecondsRef.current);
+        backgroundTimerEngine.pauseTimer('pomo');
+        if (!stopwatchRunningRef.current) {
+          soundEngine.stopWhiteNoise();
+        }
       }
     } else {
-      backgroundTimerEngine.pauseTimer();
-      soundEngine.stopWhiteNoise();
+      setStopwatchRunning(running);
+      if (running) {
+        backgroundTimerEngine.startStopwatch(stopwatchSecondsRef.current);
+        if (targetTask) {
+          updateTaskRef.current(
+            targetTask.id,
+            {},
+            'Started Stopwatch focus session'
+          );
+        }
+      } else {
+        backgroundTimerEngine.pauseTimer('stopwatch');
+        if (!pomoTimerRunningRef.current) {
+          soundEngine.stopWhiteNoise();
+        }
+      }
     }
   }, []);
 
-  const setPomoMode = useCallback(
-    (mode: 'pomo' | 'stopwatch') => {
-      setPomoRunning(false);
-      setPomoModeState(mode);
-      const prefs = preferencesRef.current;
-      if (mode === 'pomo') {
-        const dur =
-          pomoPhaseRef.current === 'work'
-            ? prefs.pomoDuration * 60
-            : pomoPhaseRef.current === 'short_break'
-              ? prefs.shortBreakDuration * 60
-              : prefs.longBreakDuration * 60;
-        setPomoSecondsLeft(dur);
-        backgroundTimerEngine.resetTimer(dur);
-      } else {
-        setStopwatchSeconds(0);
-        backgroundTimerEngine.resetTimer(0);
-      }
-    },
-    [setPomoRunning]
-  );
+  // Switching between Pomodoro and Stopwatch tabs NEVER stops or resets a running Stopwatch or Pomodoro timer!
+  const setPomoMode = useCallback((mode: 'pomo' | 'stopwatch') => {
+    setPomoModeState(mode);
+    try {
+      localStorage.setItem('ticktick_timer_mode', mode);
+    } catch {
+      // ignore
+    }
+  }, []);
 
-  const setPomoPhase = useCallback(
-    (phase: 'work' | 'short_break' | 'long_break') => {
-      setPomoRunning(false);
-      setPomoPhaseState(phase);
-      const prefs = preferencesRef.current;
-      const dur =
-        phase === 'work'
-          ? prefs.pomoDuration * 60
-          : phase === 'short_break'
-            ? prefs.shortBreakDuration * 60
-            : prefs.longBreakDuration * 60;
-      setPomoSecondsLeft(dur);
-      backgroundTimerEngine.resetTimer(dur);
-    },
-    [setPomoRunning]
-  );
+  const setPomoPhase = useCallback((phase: 'work' | 'short_break' | 'long_break') => {
+    setPomoTimerRunning(false);
+    setPomoPhaseState(phase);
+    const prefs = preferencesRef.current;
+    const dur =
+      phase === 'work'
+        ? prefs.pomoDuration * 60
+        : phase === 'short_break'
+          ? prefs.shortBreakDuration * 60
+          : prefs.longBreakDuration * 60;
+    setPomoSecondsLeft(dur);
+    backgroundTimerEngine.resetTimer(dur, 'pomo');
+  }, []);
 
   const resetPomoTimer = useCallback(() => {
-    setPomoRunning(false);
-    soundEngine.stopWhiteNoise();
     const prefs = preferencesRef.current;
     if (pomoModeRef.current === 'pomo') {
+      setPomoTimerRunning(false);
       const defaultSecs =
         pomoPhaseRef.current === 'work'
           ? prefs.pomoDuration * 60
@@ -728,12 +750,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ? prefs.shortBreakDuration * 60
             : prefs.longBreakDuration * 60;
       setPomoSecondsLeft(defaultSecs);
-      backgroundTimerEngine.resetTimer(defaultSecs);
+      backgroundTimerEngine.resetTimer(defaultSecs, 'pomo');
+      if (!stopwatchRunningRef.current) {
+        soundEngine.stopWhiteNoise();
+      }
     } else {
+      setStopwatchRunning(false);
       setStopwatchSeconds(0);
-      backgroundTimerEngine.resetTimer(0);
+      backgroundTimerEngine.resetTimer(0, 'stopwatch');
+      if (!pomoTimerRunningRef.current) {
+        soundEngine.stopWhiteNoise();
+      }
     }
-  }, [setPomoRunning]);
+  }, []);
 
   const startTaskFocus = useCallback(
     (taskId: string, mode: 'pomo' | 'stopwatch') => {
@@ -748,14 +777,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const dur = preferencesRef.current.pomoDuration * 60;
         setPomoSecondsLeft(dur);
         pomoSecondsLeftRef.current = dur;
+        setPomoTimerRunning(true);
         backgroundTimerEngine.startPomodoro(dur, 'work', taskTitle);
+        if (targetTask) {
+          updateTaskRef.current(
+            targetTask.id,
+            {},
+            `Started Pomodoro timer (${preferencesRef.current.pomoDuration}m Focus)`
+          );
+        }
       } else {
         setStopwatchSeconds(0);
         stopwatchSecondsRef.current = 0;
+        setStopwatchRunning(true);
         backgroundTimerEngine.startStopwatch(0);
+        if (targetTask) {
+          updateTaskRef.current(
+            targetTask.id,
+            {},
+            'Started Stopwatch focus session'
+          );
+        }
       }
 
-      setPomoRunningState(true);
       setActiveModule('pomodoro');
     },
     [setActiveModule]
@@ -1611,7 +1655,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     sections: TaskSection[];
     tags: TagItem[];
     habits: Habit[];
+    pomodoroSessions?: PomodoroSession[];
     countdowns: CountdownItem[];
+    customFilters?: CustomFilter[];
+    templates?: TaskTemplate[];
+    calendarSubscriptions?: CalendarSubscription[];
   }
 
   const buildSnapshot = useCallback(
@@ -1639,10 +1687,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sections,
         tags,
         habits,
+        pomodoroSessions,
         countdowns,
+        customFilters,
+        templates,
+        calendarSubscriptions,
       };
     },
-    [tasks, lists, folders, sections, tags, habits, countdowns, preferences]
+    [
+      tasks,
+      lists,
+      folders,
+      sections,
+      tags,
+      habits,
+      pomodoroSessions,
+      countdowns,
+      customFilters,
+      templates,
+      calendarSubscriptions,
+      preferences,
+    ]
   );
 
   const buildSnapshotRef = useRef(buildSnapshot);
@@ -1668,8 +1733,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (Array.isArray(snap.sections)) setSections(snap.sections);
       if (Array.isArray(snap.tags)) setTags(snap.tags);
       if (Array.isArray(snap.habits)) setHabits(snap.habits);
+      if (Array.isArray(snap.pomodoroSessions)) setPomodoroSessions(snap.pomodoroSessions);
       if (Array.isArray(snap.countdowns)) {
         setCountdowns(snap.countdowns);
+      }
+      if (Array.isArray(snap.customFilters)) setCustomFilters(snap.customFilters);
+      if (Array.isArray(snap.templates)) setTemplates(snap.templates);
+      if (Array.isArray(snap.calendarSubscriptions)) {
+        setCalendarSubscriptions(snap.calendarSubscriptions);
       }
       if (snap.preferences?.fullName) {
         setPreferences((prev) => ({
@@ -1688,7 +1759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!silent) {
         pushToast({
           title: 'Synced from Supabase Cloud',
-          description: `${snap.tasks.length} tasks updated across devices`,
+          description: `${snap.tasks.length} tasks & ${(snap.pomodoroSessions || []).length} focus logs updated`,
           kind: 'info',
         });
       }
@@ -1851,7 +1922,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 180);
 
     return () => clearTimeout(timer);
-  }, [tasks, lists, folders, sections, tags, habits, countdowns, preferences, buildSnapshot]);
+  }, [
+    tasks,
+    lists,
+    folders,
+    sections,
+    tags,
+    habits,
+    pomodoroSessions,
+    countdowns,
+    customFilters,
+    templates,
+    calendarSubscriptions,
+    preferences,
+    buildSnapshot,
+  ]);
 
   const connectSupabase = async (url: string, anonKey: string): Promise<boolean> => {
     saveRuntimeSupabaseConfig(url, anonKey);
@@ -1966,10 +2051,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // ignore if table doesn't exist
       }
 
-      // Also persist individual tasks (with both name and title)
+      // Also persist individual tasks (including activities, focus_seconds, completed_pomos)
       try {
         if (tasks.length > 0) {
-          const taskRows = tasks.map((t) => ({
+          const richTaskRows = tasks.map((t) => ({
             id: t.id,
             name: t.title,
             title: t.title,
@@ -1978,10 +2063,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             priority: t.priority,
             due_date: t.dueDate,
             list_id: t.listId,
+            completed_pomos: t.completedPomos,
+            focus_seconds: t.focusSeconds,
+            activities: t.activities,
             updated_at: new Date().toISOString(),
           }));
-          const tRes = await client.from('tasks').upsert(taskRows);
-          if (tRes.error && tRes.error.message.includes('name')) {
+          const tRes = await client.from('tasks').upsert(richTaskRows);
+          if (tRes.error) {
             await client.from('tasks').upsert(
               tasks.map((t) => ({
                 id: t.id,
@@ -1998,6 +2086,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       } catch {
         // ignore if table doesn't exist
+      }
+
+      // Also persist Pomodoro & Stopwatch focus session logs if table exists
+      try {
+        if (pomodoroSessions.length > 0) {
+          await client.from('pomodoro_sessions').upsert(
+            pomodoroSessions.map((s) => ({
+              id: s.id,
+              task_id: s.taskId || null,
+              task_title: s.taskTitle,
+              mode: s.mode,
+              start_time: s.startTime,
+              end_time: s.endTime,
+              duration_minutes: s.durationMinutes,
+              note: s.note,
+            }))
+          );
+        }
+      } catch {
+        // ignore if table doesn't exist; ticktick_workspace payload stores full pomodoroSessions
       }
 
       // Also persist lists
@@ -2258,6 +2366,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pomoPhase,
       setPomoPhase,
       pomoRunning,
+      pomoTimerRunning,
+      stopwatchRunning,
       setPomoRunning,
       pomoSecondsLeft,
       stopwatchSeconds,
@@ -2327,6 +2437,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pomoMode,
       pomoPhase,
       pomoRunning,
+      pomoTimerRunning,
+      stopwatchRunning,
       pomoSecondsLeft,
       stopwatchSeconds,
       activePomoTaskId,
