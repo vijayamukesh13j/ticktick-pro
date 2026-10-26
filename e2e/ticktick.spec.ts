@@ -235,6 +235,18 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
       // Navigate via Mobile Bottom Bar: Habit Tracker
       await mobileNav.locator('button[aria-label="Habit Tracker"]').click();
       await expect(page.getByText('Habit Tracker').first()).toBeVisible();
+      await page.getByRole('button', { name: 'Weekly View' }).click();
+      const leftCol = page.getByTestId('habit-weekly-left-column');
+      const datesScroll = page.getByTestId('habit-weekly-dates-scroll');
+      await expect(leftCol).toBeVisible();
+      await expect(datesScroll).toBeVisible();
+      await expect(page.getByTestId('habit-weekly-today-header')).toBeVisible();
+      const leftBoxBefore = await leftCol.boundingBox();
+      await datesScroll.evaluate((el) => {
+        el.scrollLeft = 0;
+      });
+      const leftBoxAfter = await leftCol.boundingBox();
+      expect(leftBoxAfter?.x).toBe(leftBoxBefore?.x);
 
       // Open Mobile "More" Vaul-Style Bottom Sheet and navigate to Eisenhower Matrix & Stats
       await mobileNav.locator('button[aria-label="More Modules and Settings"]').click();

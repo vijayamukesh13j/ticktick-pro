@@ -345,21 +345,81 @@ export const HabitTrackerModule: React.FC = () => {
           </div>
         )}
 
-        {/* 7-Day Column Header & Matrix (Horizontally scrollable on narrow mobile screens) */}
+        {/* 7-Day Column Header & Matrix (Fixed left habit column + Horizontally scrollable dates section) */}
         <div
           className={`${
-            mobileHabitView === 'matrix' ? 'block' : 'hidden md:block'
+            mobileHabitView === 'matrix' ? 'flex' : 'hidden md:flex'
           } surface-card rounded-xl overflow-hidden`}
         >
-          <div ref={matrixScrollRef} className="overflow-x-auto">
-            <div className="min-w-[520px]">
-              <div className="grid grid-cols-[minmax(180px,1fr)_repeat(6,40px)_58px] items-center bg-zinc-50 pl-4 pr-2 py-2 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
-                <div>
-                  Habit & Daily Goal
-                  <span className="sm:hidden font-normal text-[10px] text-zinc-400 ml-1">
-                    (← swipe days →)
-                  </span>
-                </div>
+          {/* Left Fixed Habit Column (Never scrolls horizontally) */}
+          <div
+            data-testid="habit-weekly-left-column"
+            className="w-[156px] sm:w-[210px] md:flex-1 shrink-0 border-r border-zinc-200/80 bg-white select-none"
+          >
+            <div className="h-12 px-3 sm:px-4 flex items-center bg-zinc-50 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
+              Habit & Daily Goal
+            </div>
+
+            <div>
+              {sections.map((sec) => {
+                const secHabits = habits.filter((h) => h.section === sec.id);
+                if (secHabits.length === 0) return null;
+
+                return (
+                  <div key={sec.id}>
+                    <div className="h-7 px-3 sm:px-4 bg-zinc-50/80 border-b border-zinc-100 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                      <UiIcon name={sec.iconKey} className="w-3 h-3 text-zinc-400 shrink-0" />
+                      <span className="truncate">{sec.label}</span>
+                    </div>
+                    {secHabits.map((habit) => {
+                      const streak = calculateStreak(habit);
+                      const isSelected = selectedHabit?.id === habit.id;
+
+                      return (
+                        <div
+                          key={habit.id}
+                          onClick={() => setSelectedHabitId(habit.id)}
+                          className={`h-[56px] px-3 sm:px-4 flex items-center gap-2.5 border-b border-zinc-100 cursor-pointer transition-colors ${
+                            isSelected ? 'bg-zinc-900/[0.03]' : 'hover:bg-zinc-50/70'
+                          }`}
+                        >
+                          <span
+                            style={{ backgroundColor: `${habit.color}15`, color: habit.color }}
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 border border-black/[0.04]"
+                          >
+                            <UiIcon name={habit.icon} className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-zinc-900 truncate flex items-center gap-1">
+                              <span className="truncate">{habit.name}</span>
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-mono-num font-semibold text-orange-500 shrink-0">
+                                <Flame className="w-3 h-3 fill-orange-500" />
+                                {streak}d
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-zinc-400 truncate font-mono-num">
+                              {habit.goalType === 'quantified'
+                                ? `Goal: ${habit.targetValue} ${habit.unit}/day`
+                                : habit.quote}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Sliding 7-Day Dates Section (Only this section scrolls horizontally on mobile) */}
+          <div
+            ref={matrixScrollRef}
+            data-testid="habit-weekly-dates-scroll"
+            className="overflow-x-auto flex-1 md:flex-none touch-pan-x"
+          >
+            <div className="min-w-[308px] sm:min-w-[324px]">
+              <div className="h-12 grid grid-cols-[repeat(6,42px)_56px] sm:grid-cols-[repeat(6,44px)_60px] items-center bg-zinc-50 border-b border-zinc-200/80 text-[11px] font-semibold text-zinc-500">
                 {last7Days.map((d) => {
                   const dStr = format(d, 'yyyy-MM-dd');
                   const isTodayCol = dStr === todayStr;
@@ -369,7 +429,7 @@ export const HabitTrackerModule: React.FC = () => {
                       data-testid={isTodayCol ? 'habit-weekly-today-header' : undefined}
                       className={`text-center ${
                         isTodayCol
-                          ? 'bg-blue-600 text-white rounded-lg py-1 px-1 shadow-2xs font-bold ring-2 ring-blue-500/20'
+                          ? 'bg-blue-600 text-white rounded-lg py-1 px-1 mx-1 shadow-2xs font-bold ring-2 ring-blue-500/20'
                           : ''
                       }`}
                     >
@@ -382,53 +442,30 @@ export const HabitTrackerModule: React.FC = () => {
                 })}
               </div>
 
-              {/* Grouped by Time of Day */}
-              <div className="divide-y divide-zinc-100">
-                {sections.map((sec) => {
+              {/* Grouped by Time of Day — Date Rows */}
+              <div>
+                {sections.map((sec, secIdx) => {
                   const secHabits = habits.filter((h) => h.section === sec.id);
                   if (secHabits.length === 0) return null;
 
                   return (
                     <div key={sec.id}>
-                      <div className="px-4 py-1.5 bg-zinc-50/70 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <UiIcon name={sec.iconKey} className="w-3 h-3 text-zinc-400" />
-                        {sec.label}
+                      <div className="h-7 bg-zinc-50/80 border-b border-zinc-100 flex items-center justify-end pr-2.5 text-[9px] font-medium text-zinc-400">
+                        {secIdx === 0 && (
+                          <span className="sm:hidden">← slide dates →</span>
+                        )}
                       </div>
                       {secHabits.map((habit) => {
-                        const streak = calculateStreak(habit);
                         const isSelected = selectedHabit?.id === habit.id;
 
                         return (
                           <div
                             key={habit.id}
                             onClick={() => setSelectedHabitId(habit.id)}
-                            className={`grid grid-cols-[minmax(180px,1fr)_repeat(6,40px)_58px] items-center pl-4 pr-2 py-2.5 cursor-pointer ${
+                            className={`h-[56px] grid grid-cols-[repeat(6,42px)_56px] sm:grid-cols-[repeat(6,44px)_60px] items-stretch border-b border-zinc-100 cursor-pointer transition-colors ${
                               isSelected ? 'bg-zinc-900/[0.03]' : 'hover:bg-zinc-50/70'
                             }`}
                           >
-                            <div className="flex items-center gap-3 min-w-0 pr-2">
-                              <span
-                                style={{ backgroundColor: `${habit.color}15`, color: habit.color }}
-                                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-black/[0.04]"
-                              >
-                                <UiIcon name={habit.icon} className="w-4 h-4" />
-                              </span>
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-zinc-900 truncate flex items-center gap-1.5">
-                                  <span className="truncate">{habit.name}</span>
-                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-mono-num font-semibold text-orange-500 shrink-0">
-                                    <Flame className="w-3 h-3 fill-orange-500" />
-                                    {streak}d
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-zinc-400 truncate font-mono-num">
-                                  {habit.goalType === 'quantified'
-                                    ? `Goal: ${habit.targetValue} ${habit.unit}/day`
-                                    : habit.quote}
-                                </div>
-                              </div>
-                            </div>
-
                             {last7Days.map((d) => {
                               const dStr = format(d, 'yyyy-MM-dd');
                               const isTodayCol = dStr === todayStr;
@@ -446,7 +483,7 @@ export const HabitTrackerModule: React.FC = () => {
                                   key={dStr}
                                   className={`flex items-center justify-center ${
                                     isTodayCol
-                                      ? 'bg-blue-50/60 border-l border-blue-200/60 py-1 rounded-r-lg'
+                                      ? 'bg-blue-50/60 border-l border-blue-200/60'
                                       : ''
                                   }`}
                                 >
