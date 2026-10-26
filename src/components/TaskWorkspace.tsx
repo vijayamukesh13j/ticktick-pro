@@ -59,6 +59,7 @@ export const TaskWorkspace: React.FC = () => {
     tasks,
     lists,
     sections,
+    tags,
     customFilters,
     countdowns,
     selectedTaskId,
@@ -79,6 +80,10 @@ export const TaskWorkspace: React.FC = () => {
 
   const [quickInput, setQuickInput] = useState('');
   const [quickPriority, setQuickPriority] = useState<Priority | undefined>(undefined);
+  const [quickSelectedListId, setQuickSelectedListId] = useState<string | null>(null);
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
+  const [autocompleteDismissed, setAutocompleteDismissed] = useState(false);
+  const [autocompleteNavigated, setAutocompleteNavigated] = useState(false);
   const [fallbackViewMode, setFallbackViewMode] = useState<ViewMode>('list');
   const [sortBy, setSortBy] = useState<'priority' | 'dueDate' | 'title' | 'custom'>('priority');
   const [isListeningVoice, setIsListeningVoice] = useState(false);
@@ -127,6 +132,96 @@ export const TaskWorkspace: React.FC = () => {
     if (!quickInput.trim()) return null;
     return parseNaturalLanguageTask(quickInput);
   }, [quickInput]);
+
+  // Inline Autocomplete for Existing Lists & Tags while typing a task
+  const autocompleteData = useMemo(() => {
+    if (autocompleteDismissed || !quickInput) return null;
+    // Match the trailing word token if cursor is at the end (no trailing space)
+    const trailingMatch = quickInput.match(/(?:^|\s)([^\s]+)$/);
+    if (!trailingMatch) return null;
+
+    const rawToken = trailingMatch[1];
+    const tokenStartIndex = quickInput.length - rawToken.length;
+
+    const isExplicitTag = rawToken.startsWith('#');
+    const isExplicitList = rawToken.startsWith('~') || rawToken.startsWith('^');
+    const cleanQuery = rawToken.replace(/^[#~^]+/, '').toLowerCase();
+
+    // Require at least 1 char for explicit #/~ or at least 2 chars for plain word matching
+    if (!isExplicitTag && !isExplicitList && cleanQuery.length < 2) {
+      return null;
+    }
+
+    // Do not suggest if the exact #tag is already completed
+    if (isExplicitTag && tags.some((t) => t.name.toLowerCase() === cleanQuery && rawToken.length > 1 && quickInput.endsWith(' '))) {
+      return null;
+    }
+
+    type SuggestionItem = {
+      kind: 'list' | 'tag';
+      id: string;
+      name: string;
+      color: string;
+    };
+
+    const items: SuggestionItem[] = [];
+
+    if (!isExplicitTag) {
+      const matchingLists = lists.filter((l) =>
+        cleanQuery.length === 0 ? true : l.name.toLowerCase().includes(cleanQuery)
+      );
+      for (const l of matchingLists.slice(0, 4)) {
+        items.push({
+          kind: 'list',
+          id: l.id,
+          name: l.name,
+          color: l.color,
+        });
+      }
+    }
+
+    if (!isExplicitList) {
+      const matchingTags = tags.filter((t) =>
+        cleanQuery.length === 0 ? true : t.name.toLowerCase().includes(cleanQuery)
+      );
+      for (const tg of matchingTags.slice(0, 5)) {
+        items.push({
+          kind: 'tag',
+          id: tg.id,
+          name: tg.name,
+          color: tg.color,
+        });
+      }
+    }
+
+    if (items.length === 0) return null;
+
+    return {
+      rawToken,
+      tokenStartIndex,
+      isExplicitPrefix: isExplicitTag || isExplicitList,
+      items,
+    };
+  }, [quickInput, lists, tags, autocompleteDismissed]);
+
+  const applyAutocompleteSuggestion = (item: {
+    kind: 'list' | 'tag';
+    id: string;
+    name: string;
+    color: string;
+  }) => {
+    if (!autocompleteData) return;
+    const before = quickInput.slice(0, autocompleteData.tokenStartIndex);
+    if (item.kind === 'tag') {
+      setQuickInput(`${before}#${item.name} `);
+    } else {
+      setQuickSelectedListId(item.id);
+      setQuickInput(before);
+    }
+    setAutocompleteIndex(0);
+    setAutocompleteDismissed(false);
+    setAutocompleteNavigated(false);
+  };
 
   // Filter tasks according to current sidebar selection
   const filteredTasks = useMemo(() => {
@@ -228,7 +323,15 @@ export const TaskWorkspace: React.FC = () => {
           ) {
             return false;
           }
-          if (flt.criteria.dateRange === 'today' && t.dueDate !== todayStr) return false;
+          if (flt.criteria.dateRange === 'today' && (!t.dueDate || !isTaskDueOnDate(t, todayStr))) {
+            return false;
+          }
+          if (
+            flt.criteria.dateRange === 'next7days' &&
+            !isTaskDueInDateRange(t, todayStr, next7Str)
+          ) {
+            return false;
+          }
           if (
             flt.criteria.dateRange === 'overdue' &&
             (!t.dueDate || !isBefore(parseISO(t.dueDate), today))
@@ -256,9 +359,9 @@ export const TaskWorkspace: React.FC = () => {
     if (!quickInput.trim()) return;
     const parsed = parseNaturalLanguageTask(quickInput);
 
-    // Resolve target list from ~listName or current selection
-    let targetListId = activeList ? activeList.id : 'inbox';
-    if (parsed.listName) {
+    // Resolve target list from explicit autocomplete selection, ~listName, or current selection
+    let targetListId = quickSelectedListId ?? (activeList ? activeList.id : 'inbox');
+    if (!quickSelectedListId && parsed.listName) {
       const matched = lists.find(
         (l) => l.name.toLowerCase().includes(parsed.listName!.toLowerCase())
       );
@@ -294,6 +397,9 @@ export const TaskWorkspace: React.FC = () => {
 
     setQuickInput('');
     setQuickPriority(undefined);
+    setQuickSelectedListId(null);
+    setAutocompleteDismissed(false);
+    setAutocompleteNavigated(false);
   };
 
   const handleVoiceInput = () => {
@@ -810,14 +916,79 @@ export const TaskWorkspace: React.FC = () => {
           <form onSubmit={handleQuickSubmit} className="relative">
             <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 rounded-lg bg-zinc-100/80 border border-zinc-200/90 focus-within:bg-white focus-within:border-zinc-900 focus-within:ring-2 focus-within:ring-zinc-900/5">
               <Plus className="w-4 h-4 text-zinc-400 shrink-0" strokeWidth={1.75} />
+
+              {/* Selected List Chip when chosen via autocomplete */}
+              {quickSelectedListId && (() => {
+                const chosenList = lists.find((l) => l.id === quickSelectedListId);
+                if (!chosenList) return null;
+                return (
+                  <span
+                    data-testid="quick-selected-list-chip"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-white border border-zinc-200/90 text-zinc-800 shadow-2xs shrink-0"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: chosenList.color }}
+                    />
+                    <span className="max-w-[96px] truncate">{chosenList.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setQuickSelectedListId(null)}
+                      title="Remove target list"
+                      className="text-zinc-400 hover:text-zinc-700 ml-0.5"
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })()}
+
               <input
                 type="text"
                 value={quickInput}
-                onChange={(e) => setQuickInput(e.target.value)}
+                onChange={(e) => {
+                  setQuickInput(e.target.value);
+                  setAutocompleteIndex(0);
+                  setAutocompleteDismissed(false);
+                  setAutocompleteNavigated(false);
+                }}
+                onKeyDown={(e) => {
+                  if (!autocompleteData || autocompleteData.items.length === 0) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setAutocompleteNavigated(true);
+                    setAutocompleteIndex((prev) =>
+                      (prev + 1) % autocompleteData.items.length
+                    );
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setAutocompleteNavigated(true);
+                    setAutocompleteIndex((prev) =>
+                      (prev - 1 + autocompleteData.items.length) %
+                      autocompleteData.items.length
+                    );
+                  } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const chosen =
+                      autocompleteData.items[autocompleteIndex] ||
+                      autocompleteData.items[0];
+                    if (chosen) applyAutocompleteSuggestion(chosen);
+                  } else if (e.key === 'Enter' && autocompleteNavigated) {
+                    e.preventDefault();
+                    const chosen =
+                      autocompleteData.items[autocompleteIndex] ||
+                      autocompleteData.items[0];
+                    if (chosen) applyAutocompleteSuggestion(chosen);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setAutocompleteDismissed(true);
+                    setAutocompleteNavigated(false);
+                  }
+                }}
                 placeholder={
                   isNarrowScreen
-                    ? `+ Add task... Try NLP`
-                    : `+ Add task to "${headerTitle}"... Try NLP: "Design API tomorrow 2pm #supabase !high"`
+                    ? `+ Add task... Try NLP (#tag or ~list)`
+                    : `+ Add task to "${headerTitle}"... Try NLP or type a list/tag name for autocomplete`
                 }
                 className="flex-1 min-w-0 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
               />
@@ -937,6 +1108,64 @@ export const TaskWorkspace: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Inline Autocomplete Dropdown for Matching Existing Lists & Tags */}
+            {autocompleteData && autocompleteData.items.length > 0 && (
+              <div
+                data-testid="quick-add-autocomplete"
+                className="absolute left-0 right-0 sm:right-auto sm:w-80 top-full mt-1.5 surface-floating bg-white rounded-xl border border-zinc-200/90 shadow-xl p-1.5 z-40 animate-popover"
+              >
+                <div className="flex items-center justify-between px-2 py-1 border-b border-zinc-100 mb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                    Matching Lists & Tags
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-mono-num">
+                    Tab / Click to choose
+                  </span>
+                </div>
+                <div className="max-h-52 overflow-y-auto space-y-0.5">
+                  {autocompleteData.items.map((item, idx) => {
+                    const isHighlighted = idx === autocompleteIndex;
+                    return (
+                      <button
+                        key={`${item.kind}-${item.id}`}
+                        type="button"
+                        data-testid={`autocomplete-option-${item.kind}-${item.name}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          applyAutocompleteSuggestion(item);
+                        }}
+                        onMouseEnter={() => setAutocompleteIndex(idx)}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors ${
+                          isHighlighted
+                            ? 'bg-zinc-900 text-white font-medium'
+                            : 'text-zinc-700 hover:bg-zinc-100'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className="truncate">
+                            {item.kind === 'tag' ? `#${item.name}` : item.name}
+                          </span>
+                        </span>
+                        <span
+                          className={`text-[10px] font-mono-num px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                            isHighlighted
+                              ? 'bg-white/15 text-zinc-200'
+                              : 'bg-zinc-100 text-zinc-500'
+                          }`}
+                        >
+                          {item.kind === 'list' ? 'List' : 'Tag'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Live NLP Smart Recognition Pills */}
             {parsedPreview && parsedPreview.detectedTokens.length > 0 && (

@@ -25,6 +25,25 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     await expect(page.getByText('Verify Playwright E2E flow').first()).toBeVisible();
     await expect(page.getByText('25m').first()).toBeVisible();
 
+    // Verify Inline List & Tag Autocomplete while typing a task
+    await quickInput.fill('Prepare architecture review Core');
+    const autocompleteMenu = page.getByTestId('quick-add-autocomplete');
+    await expect(autocompleteMenu).toBeVisible();
+    const listOption = page.getByTestId('autocomplete-option-list-Q4 Core Launch');
+    await expect(listOption).toBeVisible();
+    await listOption.dispatchEvent('mousedown');
+    await expect(page.getByTestId('quick-selected-list-chip')).toContainText('Q4 Core Launch');
+
+    // Also type partial existing tag name ("supa") and select #supabase from autocomplete
+    await quickInput.fill('Prepare architecture review supa');
+    await expect(autocompleteMenu).toBeVisible();
+    const tagOption = page.getByTestId('autocomplete-option-tag-supabase');
+    await expect(tagOption).toBeVisible();
+    await tagOption.dispatchEvent('mousedown');
+    await expect(quickInput).toHaveValue('Prepare architecture review #supabase ');
+    await quickInput.press('Enter');
+    await expect(page.getByText('Prepare architecture review').first()).toBeVisible();
+
     // Switch to Kanban view
     await page.locator('button[title="Kanban View"]').click();
     await expect(page.getByText('To Do').first()).toBeVisible();

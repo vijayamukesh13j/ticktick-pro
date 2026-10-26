@@ -117,6 +117,8 @@ export const TaskSidebar: React.FC = () => {
   const [filterDateRange, setFilterDateRange] = useState<
     'any' | 'today' | 'overdue' | 'next7days'
   >('any');
+  const [filterListId, setFilterListId] = useState<string>('all');
+  const [filterSelectedTags, setFilterSelectedTags] = useState<string[]>([]);
 
   // Blank Workspace Confirmation State
   const [confirmBlankReset, setConfirmBlankReset] = useState(false);
@@ -252,13 +254,17 @@ export const TaskSidebar: React.FC = () => {
       color: '#3b66f5',
       criteria: {
         priorities: filterPriority === 'all' ? [] : [filterPriority],
-        tags: [],
-        listIds: [],
+        tags: filterSelectedTags,
+        listIds: filterListId === 'all' ? [] : [filterListId],
         dateRange: filterDateRange,
         status: 'todo',
       },
     });
     setFilterName('');
+    setFilterPriority('all');
+    setFilterDateRange('any');
+    setFilterListId('all');
+    setFilterSelectedTags([]);
     setShowNewFilterModal(false);
   };
 
@@ -1593,6 +1599,52 @@ export const TaskSidebar: React.FC = () => {
                     </select>
                   </div>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600 mb-1">List</label>
+                  <select
+                    value={filterListId}
+                    onChange={(e) => setFilterListId(e.target.value)}
+                    className="w-full px-2.5 py-2 text-xs rounded-lg border border-zinc-300 bg-white"
+                  >
+                    <option value="all">All Lists</option>
+                    <option value="inbox">Inbox</option>
+                    {visibleLists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {tags.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600 mb-1">
+                      Tags (optional)
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tags.map((tg) => {
+                        const isPicked = filterSelectedTags.includes(tg.name);
+                        return (
+                          <button
+                            key={tg.id}
+                            type="button"
+                            onClick={() =>
+                              setFilterSelectedTags((prev) =>
+                                isPicked ? prev.filter((x) => x !== tg.name) : [...prev, tg.name]
+                              )
+                            }
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors ${
+                              isPicked
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100'
+                            }`}
+                          >
+                            #{tg.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"

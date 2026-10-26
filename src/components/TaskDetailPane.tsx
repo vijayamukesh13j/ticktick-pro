@@ -76,6 +76,7 @@ export const TaskDetailPane: React.FC = () => {
     tasks,
     lists,
     tags,
+    addTag,
     selectedTaskId,
     setSelectedTaskId,
     updateTask,
@@ -108,6 +109,7 @@ export const TaskDetailPane: React.FC = () => {
   const [isSubtasksCompletedCollapsed, setIsSubtasksCompletedCollapsed] = useState(false);
   const [showFocusMenu, setShowFocusMenu] = useState(false);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
+  const [tagSearchInput, setTagSearchInput] = useState('');
   const [draft, setDraft] = useState<TaskDraft | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [isSavedNotice, setIsSavedNotice] = useState(false);
@@ -1092,8 +1094,8 @@ export const TaskDetailPane: React.FC = () => {
             />
           </div>
 
-          {/* Tags */}
-          <div className="space-y-1.5">
+          {/* Tags with Autocomplete Input */}
+          <div className="space-y-2 relative">
             <span className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               Tags
             </span>
@@ -1124,6 +1126,76 @@ export const TaskDetailPane: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+
+            {/* Inline Tag Autocomplete Input */}
+            <div className="relative">
+              <input
+                type="text"
+                value={tagSearchInput}
+                onChange={(e) => setTagSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && tagSearchInput.trim()) {
+                    e.preventDefault();
+                    const clean = tagSearchInput.trim().replace(/^#/, '').toLowerCase();
+                    if (!clean) return;
+                    const existing = tags.find((t) => t.name.toLowerCase().includes(clean));
+                    const chosenName = existing ? existing.name : clean;
+                    if (!existing) {
+                      addTag(chosenName, '#3b82f6');
+                    }
+                    if (!currentDraft.tags.includes(chosenName)) {
+                      setDraft((d) => ({
+                        ...(d || getInitialDraft(task)),
+                        tags: [...currentDraft.tags, chosenName],
+                      }));
+                    }
+                    setTagSearchInput('');
+                  }
+                }}
+                placeholder="+ Type tag name to search or create..."
+                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200/90 focus:outline-none focus:border-zinc-900 bg-white"
+              />
+              {tagSearchInput.trim().replace(/^#/, '').length > 0 && (() => {
+                const q = tagSearchInput.trim().replace(/^#/, '').toLowerCase();
+                const matching = tags.filter((t) => t.name.toLowerCase().includes(q));
+                if (matching.length === 0) return null;
+                return (
+                  <div className="absolute left-0 right-0 top-full mt-1 surface-floating bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1 z-30 animate-popover">
+                    {matching.map((tg) => {
+                      const alreadySelected = currentDraft.tags.includes(tg.name);
+                      return (
+                        <button
+                          key={tg.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            if (!alreadySelected) {
+                              setDraft((d) => ({
+                                ...(d || getInitialDraft(task)),
+                                tags: [...currentDraft.tags, tg.name],
+                              }));
+                            }
+                            setTagSearchInput('');
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-100 text-xs text-zinc-700 flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <span
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: tg.color }}
+                            />
+                            #{tg.name}
+                          </span>
+                          {alreadySelected && (
+                            <span className="text-[10px] text-zinc-400">Added</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
