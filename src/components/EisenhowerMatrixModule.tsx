@@ -147,8 +147,14 @@ export const EisenhowerMatrixModule: React.FC = () => {
   // Global settings: default hideCompleted to true so completed tasks are removed by default
   const [hideCompleted, setHideCompleted] = useState<boolean>(() => {
     try {
-      const stored = localStorage.getItem('ticktick_eisenhower_hide_completed');
-      return stored !== 'false';
+      const stored = localStorage.getItem('ticktick_eisenhower_hide_completed_v2');
+      if (stored !== null) {
+        return stored === 'true';
+      }
+      // Migrate and purge legacy key (which was auto-persisted as 'false' in older versions)
+      localStorage.removeItem('ticktick_eisenhower_hide_completed');
+      localStorage.setItem('ticktick_eisenhower_hide_completed_v2', 'true');
+      return true;
     } catch {
       return true;
     }
@@ -235,7 +241,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
   // Sync to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('ticktick_eisenhower_hide_completed', String(hideCompleted));
+      localStorage.setItem('ticktick_eisenhower_hide_completed_v2', String(hideCompleted));
     } catch {
       // ignore
     }

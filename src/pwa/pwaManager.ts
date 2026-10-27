@@ -72,24 +72,44 @@ export function registerPwaServiceWorker(): void {
       navigator.serviceWorker
         .register(swUrl)
         .then((reg) => {
-          // Check for worker updates
-          reg.onupdatefound = () => {
-            const installingWorker = reg.installing;
-            if (!installingWorker) return;
-            installingWorker.onstatechange = () => {
-              if (installingWorker.state === 'installed') {
+          // Check for worker updates immediately on page load
+          reg.update().catch(() => {});
+
+          const handleInstalling = (worker: ServiceWorker) => {
+            worker.onstatechange = () => {
+              if (worker.state === 'installed') {
                 if (navigator.serviceWorker.controller) {
-                  console.log('[PWA] New content available; please refresh.');
+                  // Prompt the waiting worker to activate immediately
+                  worker.postMessage({ type: 'SKIP_WAITING' });
                 } else {
                   console.log('[PWA] Content cached for offline use.');
                 }
               }
             };
           };
+
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+
+          reg.onupdatefound = () => {
+            if (reg.installing) {
+              handleInstalling(reg.installing);
+            }
+          };
         })
         .catch((err) => {
           console.warn('[PWA] Service Worker registration failed:', err);
         });
+
+      // Reload once the new service worker takes control so users seamlessly see the latest deployment
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
     });
   }
 }
