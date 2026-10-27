@@ -149,6 +149,9 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     await expect(page.getByText('Read Technical Book').last()).toBeVisible();
 
     // 5. Test Supabase Cloud Connection via Custom / Demo Project, Push & Pull
+    await page.route('**/rest/v1/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
     await desktopRail.locator('button[aria-label="Supabase Backend Settings"]').click();
     await expect(page.getByText('Local-First Mode')).toBeVisible();
     await page.getByRole('button', { name: /Fill Demo Project/i }).click();
@@ -489,8 +492,8 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
 
     // Mock remote Supabase REST response to verify new-device connection pulls personal data instead of keeping mock data
     const todayIso = new Date().toLocaleDateString('en-CA');
-    await page.route('**/rest/v1/ticktick_workspace*', async (route) => {
-      if (route.request().method() === 'GET') {
+    await page.route('**/rest/v1/**', async (route) => {
+      if (route.request().url().includes('/ticktick_workspace') && route.request().method() === 'GET') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -599,13 +602,16 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     await expect(page.getByText('User Guide').first()).toBeVisible();
 
     // 2. Open User Guide Modal
-    await page.getByText('User Guide').first().click();
+    await page.getByRole('button', { name: 'User Guide' }).click();
     await expect(page.getByText('Eisenhower Matrix User Guide')).toBeVisible();
     await expect(page.getByText(/What is important is seldom urgent/i)).toBeVisible();
     await page.getByRole('button', { name: 'Got It' }).click();
     await expect(page.getByText('Eisenhower Matrix User Guide')).toHaveCount(0);
 
     // 3. Test In-Quadrant Floating Quick-Add Card in Quadrant II (Not Urgent & Important)
+    if (isMobile) {
+      await page.getByRole('button', { name: /Schedule/i }).click();
+    }
     await page.locator('button[aria-label="Add task to Not Urgent & Important"]').click();
     const taskInput = page.locator('input[placeholder="What would you like to do?"]');
     await expect(taskInput).toBeVisible();
@@ -617,6 +623,9 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     await expect(page.getByText('Deep Work Strategic Roadmap').first()).toBeVisible();
 
     // 4. Test Quadrant Header (...) Menu (Edit, Group by, Sort by, Order)
+    if (isMobile) {
+      await page.getByRole('button', { name: /Delegate/i }).click();
+    }
     await page.locator('button[aria-label="Options for Urgent & Unimportant"]').click();
     await expect(page.getByText('Edit').first()).toBeVisible();
     await expect(page.getByText('Oldest First').first()).toBeVisible();
@@ -752,5 +761,94 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
     await page.getByRole('button', { name: 'Agenda', exact: true }).click();
     const agendaText = await headerTitle.textContent();
     expect(agendaText).toBeDefined();
+  });
+
+  test('Completed dropdown defaults to closed and cleans tasks older than 3 days', async ({
+    page,
+    isMobile,
+  }) => {
+    await page.goto('/');
+
+    // 1. Create a task via Quick-Add in Today view
+    const quickInput = page.locator('input[placeholder*="Try NLP"]');
+    await expect(quickInput).toBeVisible();
+    await quickInput.fill('Quick Completed Workflow Task today');
+    await quickInput.press('Enter');
+    await expect(page.getByText('Quick Completed Workflow Task').first()).toBeVisible();
+
+    // 2. Complete the task
+    await page
+      .locator('button[aria-label=\'Mark "Quick Completed Workflow Task" as completed\']')
+      .first()
+      .click();
+
+    // 3. Inject an older completed task (completed 5 days ago) into local storage
+    await page.evaluate(() => {
+      const stored = localStorage.getItem('ticktick_pro_v2_tasks');
+      const tasks = stored ? JSON.parse(stored) : [];
+      const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+      const localToday = new Date().toLocaleDateString('en-CA');
+      tasks.push({
+        id: 'task-ancient-completed',
+        title: 'Ancient Completed Task Older Than 3 Days',
+        content: '',
+        isNote: false,
+        isAllDay: true,
+        status: 'completed',
+        priority: 1,
+        listId: 'inbox',
+        dueDate: localToday,
+        completedAt: fiveDaysAgo,
+        tags: [],
+        subtasks: [],
+        attachments: [],
+        comments: [],
+        activities: [],
+        reminders: [],
+        constantReminder: false,
+        emailReminder: false,
+        estimatedPomos: 0,
+        completedPomos: 0,
+        focusSeconds: 0,
+        isPinned: false,
+        sortOrder: 999,
+        createdAt: fiveDaysAgo,
+        updatedAt: fiveDaysAgo,
+      });
+      localStorage.setItem('ticktick_pro_v2_tasks', JSON.stringify(tasks));
+    });
+    await page.reload();
+
+    // 4. Verify Completed section toggle is present with "(past 3 days)"
+    const completedToggle = page.getByTestId('completed-section-toggle');
+    await expect(completedToggle).toBeVisible();
+    await expect(completedToggle).toContainText('(past 3 days)');
+
+    // 5. Verify default state is CLOSED: completed tasks are NOT visible in the DOM
+    await expect(page.getByText('Quick Completed Workflow Task')).toHaveCount(0);
+    await expect(page.getByText('Ancient Completed Task Older Than 3 Days')).toHaveCount(0);
+
+    // 6. Click to expand completed dropdown
+    await completedToggle.click();
+
+    // The recently completed task is visible
+    await expect(page.getByText('Quick Completed Workflow Task').first()).toBeVisible();
+
+    // The task completed 5 days ago is CLEANED OUT and NOT in this collapsible section
+    await expect(page.getByText('Ancient Completed Task Older Than 3 Days')).toHaveCount(0);
+
+    // 7. Click again to collapse
+    await completedToggle.click();
+    await expect(page.getByText('Quick Completed Workflow Task')).toHaveCount(0);
+
+    // 8. Navigate to the dedicated "Completed" smart list in the sidebar
+    if (isMobile) {
+      await page.locator('button[aria-label="Toggle Sidebar"]').click();
+    }
+    await page.getByRole('button', { name: /Completed/i }).first().click();
+
+    // In the dedicated Completed archive, ALL completed tasks (including > 3 days old) are viewable
+    await expect(page.getByText('Quick Completed Workflow Task').first()).toBeVisible();
+    await expect(page.getByText('Ancient Completed Task Older Than 3 Days').first()).toBeVisible();
   });
 });

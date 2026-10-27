@@ -3,6 +3,7 @@ import {
   addWeeks,
   addMonths,
   addYears,
+  differenceInCalendarDays,
   parseISO,
   format,
   getDay,
@@ -118,3 +119,26 @@ export function isTaskDueInDateRange(task: Task, startStr: string, endStr: strin
   }
   return false;
 }
+
+/**
+ * Checks if a completed task was completed within the given number of past days (default: 3 days).
+ * Uses completedAt if present, otherwise falls back to updatedAt.
+ */
+export function isCompletedWithinDays(
+  task: Task,
+  today: Date = new Date(),
+  maxDays: number = 3
+): boolean {
+  if (task.status !== 'completed') return false;
+  const timestamp = task.completedAt || task.updatedAt;
+  if (!timestamp) return true;
+  try {
+    const completedDate = parseISO(timestamp);
+    if (isNaN(completedDate.getTime())) return true;
+    const diff = differenceInCalendarDays(today, completedDate);
+    return diff <= maxDays;
+  } catch {
+    return true;
+  }
+}
+

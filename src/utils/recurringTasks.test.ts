@@ -3,6 +3,7 @@ import {
   getNextOccurrenceDate,
   isTaskDueOnDate,
   isTaskDueInDateRange,
+  isCompletedWithinDays,
 } from './recurringTasks';
 import { Task } from '../types';
 
@@ -116,5 +117,72 @@ describe('recurringTasks utility', () => {
     expect(isTaskDueInDateRange(weeklyTask, '2026-10-26', '2026-10-31')).toBe(false);
     // Range Oct 26 to Nov 02 -> includes Nov 01 (Sunday)
     expect(isTaskDueInDateRange(weeklyTask, '2026-10-26', '2026-11-02')).toBe(true);
+  });
+
+  it('filters completed tasks within past 3 days and cleans older tasks', () => {
+    const today = new Date('2026-10-27T12:00:00.000Z');
+
+    const baseTask: Task = {
+      id: 'task-test',
+      title: 'Completed Task',
+      content: '',
+      isNote: false,
+      isAllDay: true,
+      status: 'completed',
+      priority: 1,
+      listId: 'inbox',
+      tags: [],
+      subtasks: [],
+      attachments: [],
+      comments: [],
+      activities: [],
+      reminders: [],
+      constantReminder: false,
+      emailReminder: false,
+      estimatedPomos: 0,
+      completedPomos: 0,
+      focusSeconds: 0,
+      isPinned: false,
+      sortOrder: 0,
+      createdAt: '2026-10-20T00:00:00.000Z',
+      updatedAt: '2026-10-27T00:00:00.000Z',
+    };
+
+    // Returns false if task is not completed
+    expect(isCompletedWithinDays({ ...baseTask, status: 'todo' }, today, 3)).toBe(false);
+
+    // Completed today (0 days ago) -> true
+    expect(isCompletedWithinDays({ ...baseTask, completedAt: '2026-10-27T09:00:00.000Z' }, today, 3)).toBe(true);
+
+    // Completed 1 day ago -> true
+    expect(isCompletedWithinDays({ ...baseTask, completedAt: '2026-10-26T18:00:00.000Z' }, today, 3)).toBe(true);
+
+    // Completed 2 days ago -> true
+    expect(isCompletedWithinDays({ ...baseTask, completedAt: '2026-10-25T12:00:00.000Z' }, today, 3)).toBe(true);
+
+    // Completed 3 days ago -> true
+    expect(isCompletedWithinDays({ ...baseTask, completedAt: '2026-10-24T12:00:00.000Z' }, today, 3)).toBe(true);
+
+    // Completed 4 days ago -> false (cleaned after 3 days)
+    expect(isCompletedWithinDays({ ...baseTask, completedAt: '2026-10-23T12:00:00.000Z' }, today, 3)).toBe(false);
+
+    // Completed 10 days ago -> false
+    expect(isCompletedWithinDays({ ...baseTask, completedAt: '2026-10-17T12:00:00.000Z' }, today, 3)).toBe(false);
+
+    // Fallback to updatedAt if completedAt is omitted
+    expect(
+      isCompletedWithinDays(
+        { ...baseTask, completedAt: undefined, updatedAt: '2026-10-26T10:00:00.000Z' },
+        today,
+        3
+      )
+    ).toBe(true);
+    expect(
+      isCompletedWithinDays(
+        { ...baseTask, completedAt: undefined, updatedAt: '2026-10-22T10:00:00.000Z' },
+        today,
+        3
+      )
+    ).toBe(false);
   });
 });

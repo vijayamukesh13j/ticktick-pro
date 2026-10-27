@@ -609,7 +609,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
                 />
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="fixed inset-x-0 bottom-0 md:inset-auto md:right-0 md:top-8 z-40 md:w-48 rounded-t-3xl md:rounded-xl bg-white shadow-2xl md:shadow-xl border-t md:border border-zinc-200 p-4 md:py-1.5 md:px-0 text-xs text-zinc-700 animate-in fade-in slide-in-from-bottom md:slide-in-from-top-2 duration-150"
+                  className="fixed inset-x-0 bottom-14 md:inset-auto md:right-0 md:top-8 z-40 md:w-48 rounded-t-2xl md:rounded-xl bg-white shadow-2xl md:shadow-xl border md:border border-zinc-200 p-4 md:py-1.5 md:px-0 text-xs text-zinc-700 animate-in fade-in slide-in-from-bottom md:slide-in-from-top-2 duration-150"
                 >
                   <div className="w-10 h-1 bg-zinc-300 rounded-full mx-auto mb-3 md:hidden" />
                   <div className="md:hidden text-xs font-bold text-zinc-900 mb-2 px-1">
@@ -813,7 +813,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
                           />
                           <div
                             onClick={(e) => e.stopPropagation()}
-                            className="fixed inset-x-0 bottom-0 md:inset-auto md:right-0 md:top-7 z-40 md:w-48 rounded-t-3xl md:rounded-xl bg-white shadow-2xl md:shadow-xl border-t md:border border-zinc-200 p-5 md:py-1.5 md:px-0 text-xs text-zinc-700 max-h-[85vh] md:max-h-none overflow-y-auto animate-in fade-in slide-in-from-bottom md:slide-in-from-top-2 duration-150"
+                            className="fixed inset-x-0 bottom-14 md:inset-auto md:right-0 md:top-7 z-40 md:w-48 rounded-t-2xl md:rounded-xl bg-white shadow-2xl md:shadow-xl border md:border border-zinc-200 p-5 md:py-1.5 md:px-0 text-xs text-zinc-700 max-h-[85vh] md:max-h-none overflow-y-auto animate-in fade-in slide-in-from-bottom md:slide-in-from-top-2 duration-150"
                           >
                             <div className="w-10 h-1 bg-zinc-300 rounded-full mx-auto mb-3 md:hidden" />
                             <div className="md:hidden flex items-center justify-between mb-3 px-1">
@@ -954,7 +954,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
                     />
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="fixed inset-x-0 bottom-0 md:relative md:inset-auto z-50 md:z-auto m-0 md:m-3 p-5 md:p-3.5 rounded-t-3xl md:rounded-xl bg-white md:bg-zinc-900 text-zinc-900 md:text-zinc-100 shadow-2xl md:shadow-xl border-t md:border border-zinc-200 md:border-zinc-800 space-y-3.5 md:space-y-3 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] md:pb-3.5 animate-in fade-in slide-in-from-bottom md:slide-in-from-none duration-200"
+                      className="fixed inset-x-0 bottom-14 md:relative md:bottom-auto md:inset-auto z-50 md:z-auto m-0 md:m-3 p-5 md:p-3.5 rounded-t-2xl md:rounded-xl bg-white md:bg-zinc-900 text-zinc-900 md:text-zinc-100 shadow-2xl md:shadow-xl border md:border border-zinc-200 md:border-zinc-800 space-y-3.5 md:space-y-3 pb-5 md:pb-3.5 animate-in fade-in slide-in-from-bottom md:slide-in-from-none duration-200"
                     >
                       {/* Mobile Top Drag Handle */}
                       <div className="w-10 h-1 bg-zinc-300 rounded-full mx-auto -mt-1 md:hidden" />
@@ -1805,7 +1805,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
           role="dialog"
           aria-modal="true"
           onClick={() => setIsUserGuideOpen(false)}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pb-20 sm:pb-5 overflow-y-auto animate-in fade-in duration-150"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -1912,7 +1912,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
           role="dialog"
           aria-modal="true"
           onClick={() => setIsManageViewOpen(false)}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 pb-20 sm:pb-5 overflow-y-auto animate-in fade-in duration-150"
         >
           <div
             onClick={(e) => e.stopPropagation()}

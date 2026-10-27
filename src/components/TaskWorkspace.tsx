@@ -37,7 +37,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { Priority, Task, TaskList, ViewMode } from '../types';
 import { parseNaturalLanguageTask } from '../utils/nlpParser';
-import { isTaskDueOnDate, isTaskDueInDateRange } from '../utils/recurringTasks';
+import { isTaskDueOnDate, isTaskDueInDateRange, isCompletedWithinDays } from '../utils/recurringTasks';
 
 const PRIORITY_BORDER: Record<Priority, string> = {
   5: 'border-rose-500 text-rose-500 hover:bg-rose-50',
@@ -98,10 +98,15 @@ export const TaskWorkspace: React.FC = () => {
   const [isCountdownCollapsed, setIsCountdownCollapsed] = useState(false);
   const [isOverdueCollapsed, setIsOverdueCollapsed] = useState(false);
   const [isActiveSectionCollapsed, setIsActiveSectionCollapsed] = useState(false);
-  const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(false);
+  const [isCompletedCollapsed, setIsCompletedCollapsed] = useState(true);
   const [isNarrowScreen, setIsNarrowScreen] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 640
   );
+
+  // Reset completed section to default collapsed state when navigating between views
+  useEffect(() => {
+    setIsCompletedCollapsed(true);
+  }, [sidebarSelection.id, sidebarSelection.kind]);
 
   useEffect(() => {
     const handleResize = () => setIsNarrowScreen(window.innerWidth < 640);
@@ -541,14 +546,21 @@ export const TaskWorkspace: React.FC = () => {
     Boolean(t.dueDate && isBefore(parseISO(t.dueDate), today));
 
   const isOverdueView = sidebarSelection.kind === 'smart' && sidebarSelection.id === 'overdue';
+  const isCompletedView = sidebarSelection.kind === 'smart' && sidebarSelection.id === 'completed';
   const pinnedTasks = filteredTasks.filter((t) => t.isPinned && t.status !== 'completed');
   const overdueTasks = isOverdueView
     ? []
     : filteredTasks.filter((t) => !t.isPinned && isTaskOverdue(t));
   const openTasks = isOverdueView
     ? filteredTasks.filter((t) => !t.isPinned && t.status !== 'completed')
-    : filteredTasks.filter((t) => !t.isPinned && t.status !== 'completed' && !isTaskOverdue(t));
-  const doneTasks = filteredTasks.filter((t) => t.status === 'completed');
+    : isCompletedView
+      ? filteredTasks.filter((t) => t.status === 'completed')
+      : filteredTasks.filter((t) => !t.isPinned && t.status !== 'completed' && !isTaskOverdue(t));
+  // In normal views, the completed section shows only items completed within the past 3 days to avoid clutter.
+  // In the dedicated Completed smart list, all completed items are displayed in the main task list.
+  const doneTasks = isCompletedView
+    ? []
+    : filteredTasks.filter((t) => isCompletedWithinDays(t, today, 3));
 
   const renderTaskRow = (task: Task) => {
     const isSelected = selectedTaskId === task.id;
@@ -1422,7 +1434,9 @@ export const TaskWorkspace: React.FC = () => {
                       ? 'Today'
                       : sidebarSelection.kind === 'smart' && sidebarSelection.id === 'overdue'
                         ? 'Overdue'
-                        : 'Tasks'}
+                        : sidebarSelection.kind === 'smart' && sidebarSelection.id === 'completed'
+                          ? 'Completed'
+                          : 'Tasks'}
                   </span>
                   <span className="text-[11px] font-mono-num text-zinc-400">
                     {openTasks.length}
@@ -1438,9 +1452,13 @@ export const TaskWorkspace: React.FC = () => {
                   <div className="w-10 h-10 rounded-xl bg-zinc-100 text-zinc-500 flex items-center justify-center mx-auto mb-3 border border-zinc-200/80">
                     <Check className="w-5 h-5" strokeWidth={1.75} />
                   </div>
-                  <h3 className="text-xs font-semibold text-zinc-700">All clear</h3>
+                  <h3 className="text-xs font-semibold text-zinc-700">
+                    {isCompletedView ? 'No completed tasks' : 'All clear'}
+                  </h3>
                   <p className="text-xs text-zinc-400 mt-1">
-                    Use the smart input bar above to capture tasks with natural language.
+                    {isCompletedView
+                      ? 'Tasks you complete will appear here.'
+                      : 'Use the smart input bar above to capture tasks with natural language.'}
                   </p>
                 </div>
               ) : (
@@ -1450,11 +1468,12 @@ export const TaskWorkspace: React.FC = () => {
               )}
             </section>
 
-            {/* Dedicated Collapsible Completed Section (NO line-through) */}
+            {/* Dedicated Collapsible Completed Section (NO line-through, past 3 days) */}
             {doneTasks.length > 0 && (
               <section className="pt-2">
                 <button
                   type="button"
+                  data-testid="completed-section-toggle"
                   onClick={() => setIsCompletedCollapsed((v) => !v)}
                   className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 mb-1.5 px-1"
                 >
@@ -1466,6 +1485,9 @@ export const TaskWorkspace: React.FC = () => {
                   <span>Completed</span>
                   <span className="text-[11px] font-mono-num text-zinc-400">
                     {doneTasks.length}
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-normal ml-0.5">
+                    (past 3 days)
                   </span>
                 </button>
                 {!isCompletedCollapsed && (
@@ -1499,7 +1521,10 @@ export const TaskWorkspace: React.FC = () => {
                         (t) => t.sectionId === sec.id && t.status !== 'completed'
                       ),
                       completedItems: filteredTasks.filter(
-                        (t) => t.sectionId === sec.id && t.status === 'completed'
+                        (t) =>
+                          t.sectionId === sec.id &&
+                          t.status === 'completed' &&
+                          (isCompletedView || isCompletedWithinDays(t, today, 3))
                       ),
                       onAssign: (task: Task) => updateTask(task.id, { sectionId: sec.id }),
                     }))
@@ -1521,7 +1546,11 @@ export const TaskWorkspace: React.FC = () => {
                       {
                         id: 'col-done',
                         title: 'Completed',
-                        activeItems: filteredTasks.filter((t) => t.status === 'completed'),
+                        activeItems: filteredTasks.filter(
+                          (t) =>
+                            t.status === 'completed' &&
+                            (isCompletedView || isCompletedWithinDays(t, today, 3))
+                        ),
                         completedItems: [] as Task[],
                         onAssign: (task: Task) =>
                           updateTask(task.id, {
@@ -1646,7 +1675,12 @@ export const TaskWorkspace: React.FC = () => {
                           <div className="pt-2 border-t border-zinc-200/70 space-y-1.5">
                             <div className="text-[10px] font-semibold text-zinc-500 px-1 flex items-center gap-1">
                               <ChevronDown className="w-3 h-3" />
-                              Completed {col.completedItems.length}
+                              <span>Completed {col.completedItems.length}</span>
+                              {!isCompletedView && (
+                                <span className="text-[9px] text-zinc-400 font-normal ml-0.5">
+                                  (past 3 days)
+                                </span>
+                              )}
                             </div>
                             {col.completedItems.map((task) => renderKanbanCard(task, colIdx))}
                           </div>
@@ -1817,6 +1851,9 @@ export const TaskWorkspace: React.FC = () => {
                           <span>Completed</span>
                           <span className="text-[11px] font-mono-num text-zinc-400">
                             {doneTasks.length}
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-normal ml-0.5">
+                            (past 3 days)
                           </span>
                         </div>
                         {!isCompletedCollapsed && doneTasks.map(renderTimelineRow)}
