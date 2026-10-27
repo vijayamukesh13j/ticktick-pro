@@ -40,8 +40,10 @@ const STORAGE_KEYS = {
 class BackgroundTimerEngine {
   private worker: Worker | null = null;
   private wakeLockSentinel: any = null;
+  private wakeLockPending = false;
   private onTickCallback: ((remaining: number, elapsed: number) => void) | null = null;
   private onPomoCompleteCallback: (() => void) | null = null;
+  private pendingCompletionSessionId: number | null = null;
   private isHandlingComplete = false;
 
   constructor() {
@@ -116,13 +118,35 @@ class BackgroundTimerEngine {
    */
   public async requestWakeLock() {
     if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+    if (this.wakeLockSentinel || this.wakeLockPending) return;
+    if (
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem(STORAGE_KEYS.RUNNING) !== 'true'
+    ) {
+      return;
+    }
+    this.wakeLockPending = true;
     try {
-      this.wakeLockSentinel = await (navigator as any).wakeLock.request('screen');
-      this.wakeLockSentinel.addEventListener('release', () => {
-        this.wakeLockSentinel = null;
+      const sentinel = await (navigator as any).wakeLock.request('screen');
+      const isStillRunning =
+        typeof localStorage !== 'undefined' &&
+        localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true';
+
+      if (!isStillRunning) {
+        sentinel.release().catch(() => {});
+        return;
+      }
+
+      this.wakeLockSentinel = sentinel;
+      sentinel.addEventListener('release', () => {
+        if (this.wakeLockSentinel === sentinel) {
+          this.wakeLockSentinel = null;
+        }
       });
     } catch {
       // Ignored if battery saver or OS policy denies wake lock
+    } finally {
+      this.wakeLockPending = false;
     }
   }
 
@@ -130,11 +154,12 @@ class BackgroundTimerEngine {
    * Releases Screen Wake Lock.
    */
   public async releaseWakeLock() {
-    if (this.wakeLockSentinel) {
-      try {
-        await this.wakeLockSentinel.release();
-      } catch {}
+    const sentinel = this.wakeLockSentinel;
+    if (sentinel) {
       this.wakeLockSentinel = null;
+      try {
+        await sentinel.release();
+      } catch {}
     }
   }
 
@@ -177,6 +202,7 @@ class BackgroundTimerEngine {
     phase: 'work' | 'short_break' | 'long_break',
     taskTitle = 'Deep Focus'
   ) {
+    this.pendingCompletionSessionId = null;
     this.isHandlingComplete = false;
     const now = Date.now();
     const targetEnd = now + secondsRemaining * 1000;
@@ -250,6 +276,7 @@ class BackgroundTimerEngine {
    */
   public resetTimer(defaultSeconds: number, mode?: 'pomo' | 'stopwatch') {
     if (!mode || mode === 'pomo') {
+      this.pendingCompletionSessionId = null;
       localStorage.setItem(STORAGE_KEYS.SECONDS_LEFT, String(defaultSeconds));
       localStorage.removeItem(STORAGE_KEYS.TARGET_END);
       this.cancelServiceWorkerAlert();
@@ -318,11 +345,14 @@ class BackgroundTimerEngine {
 
     sendDeviceNotification('🎉 Focus Session Finished!', {
       body: 'Great work! You reached your target. Time for a well-deserved break.',
-      playSound: true,
+      playSound: false,
     });
 
     if (this.onPomoCompleteCallback) {
       this.onPomoCompleteCallback();
+    } else {
+      const targetEndStr = localStorage.getItem(STORAGE_KEYS.TARGET_END);
+      this.pendingCompletionSessionId = targetEndStr ? Number(targetEndStr) : Date.now();
     }
   }
 
@@ -335,7 +365,28 @@ class BackgroundTimerEngine {
   ) {
     this.onTickCallback = onTick;
     this.onPomoCompleteCallback = onPomoComplete;
+
+    if (this.pendingCompletionSessionId !== null) {
+      const isRunning =
+        typeof localStorage !== 'undefined' &&
+        localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true';
+      if (!isRunning) {
+        this.pendingCompletionSessionId = null;
+        this.onPomoCompleteCallback();
+      } else {
+        this.pendingCompletionSessionId = null;
+      }
+    }
+
     this.sync();
+
+    if (
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true'
+    ) {
+      this.worker?.postMessage('START');
+      this.requestWakeLock();
+    }
 
     return () => {
       this.onTickCallback = null;
@@ -360,7 +411,12 @@ class BackgroundTimerEngine {
     const isRunning =
       localStorage.getItem(STORAGE_KEYS.RUNNING) === 'true' && (pomoRunning || stopwatchRunning);
 
-    let secondsLeft = Number(localStorage.getItem(STORAGE_KEYS.SECONDS_LEFT)) || defaultPomoSeconds;
+    const storedSecondsLeft = localStorage.getItem(STORAGE_KEYS.SECONDS_LEFT);
+    const parsedSecondsLeft = Number(storedSecondsLeft);
+    let secondsLeft =
+      storedSecondsLeft !== null && Number.isFinite(parsedSecondsLeft)
+        ? parsedSecondsLeft
+        : defaultPomoSeconds;
     let stopwatchSeconds = Number(localStorage.getItem(STORAGE_KEYS.STOPWATCH_SECS)) || 0;
 
     const now = Date.now();

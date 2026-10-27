@@ -53,7 +53,7 @@ describe('BackgroundTimerEngine', () => {
 
     expect(localStorage.getItem('ticktick_timer_running')).toBe('false');
     expect(localStorage.getItem('ticktick_timer_stopwatch_base')).toBeNull();
-    expect(localStorage.getItem('ticktick_timer_stopwatch_secs')).toBeDefined();
+    expect(Number(localStorage.getItem('ticktick_timer_stopwatch_secs'))).toBeGreaterThanOrEqual(60);
   });
 
   it('resets timer cleanly to default values', () => {

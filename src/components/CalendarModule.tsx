@@ -838,11 +838,17 @@ export const CalendarModule: React.FC = () => {
                                   <input
                                     type="checkbox"
                                     checked={false}
+                                    disabled={Boolean(t.recurrenceRule) && t.dueDate !== dStr}
+                                    title={
+                                      Boolean(t.recurrenceRule) && t.dueDate !== dStr
+                                        ? 'Future occurrence'
+                                        : undefined
+                                    }
                                     onChange={(e) => {
                                       e.stopPropagation();
                                       toggleTaskStatus(t.id);
                                     }}
-                                    className="rounded text-zinc-900"
+                                    className="rounded text-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed"
                                   />
                                   <span className="font-medium text-zinc-800">
                                     {t.title}
@@ -1062,9 +1068,15 @@ export const CalendarModule: React.FC = () => {
                               <input
                                 type="checkbox"
                                 checked={isDone}
+                                disabled={Boolean(t.recurrenceRule) && t.dueDate !== expandedDayDate}
+                                title={
+                                  Boolean(t.recurrenceRule) && t.dueDate !== expandedDayDate
+                                    ? 'Future occurrence'
+                                    : undefined
+                                }
                                 onClick={(e) => e.stopPropagation()}
                                 onChange={() => toggleTaskStatus(t.id)}
-                                className="rounded text-zinc-900 shrink-0"
+                                className="rounded text-zinc-900 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                               />
                               <div className="min-w-0 flex-1">
                                 <div className="text-xs font-medium truncate flex items-center gap-1.5">

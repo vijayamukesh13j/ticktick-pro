@@ -100,25 +100,22 @@ const MainShell: React.FC = () => {
     sidebarSelection.kind !== 'smart' ||
     sidebarSelection.id !== 'today';
 
+  const hadBackLayerRef = React.useRef(false);
+  const [popTick, setPopTick] = React.useState(0);
   React.useEffect(() => {
     if (isHandlingPopStateRef.current) {
       isHandlingPopStateRef.current = false;
+      hadBackLayerRef.current = hasActiveBackLayer;
+      if (hasActiveBackLayer) {
+        window.history.pushState({ ticktickBackLayer: true }, '');
+      }
       return;
     }
-    if (hasActiveBackLayer) {
+    if (hasActiveBackLayer && !hadBackLayerRef.current) {
       window.history.pushState({ ticktickBackLayer: true }, '');
     }
-  }, [
-    isCommandOpen,
-    isSettingsOpen,
-    isInstallModalOpen,
-    selectedTaskId,
-    isSidebarCollapsed,
-    activeModule,
-    sidebarSelection.kind,
-    sidebarSelection.id,
-    hasActiveBackLayer,
-  ]);
+    hadBackLayerRef.current = hasActiveBackLayer;
+  }, [hasActiveBackLayer, popTick]);
 
   const handleGoBack = React.useCallback((): boolean => {
     if (isCommandOpen) {
@@ -170,8 +167,13 @@ const MainShell: React.FC = () => {
 
   React.useEffect(() => {
     const onPopState = () => {
-      isHandlingPopStateRef.current = true;
-      handleGoBack();
+      const handled = handleGoBack();
+      isHandlingPopStateRef.current = handled;
+      if (handled) {
+        setPopTick((n) => n + 1);
+      } else {
+        hadBackLayerRef.current = false;
+      }
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -203,10 +205,17 @@ const MainShell: React.FC = () => {
 
     // Ignore swipes inside horizontally scrollable containers unless started right at the left screen edge
     if (startX > 28 && target instanceof HTMLElement) {
-      const scrollableParent = target.closest(
-        '[data-testid="habit-weekly-dates-scroll"], input[type="range"]'
-      );
-      if (scrollableParent) return;
+      if (target.closest('input[type="range"]')) return;
+      let el: HTMLElement | null = target;
+      while (el && el !== e.currentTarget) {
+        if (
+          el.scrollWidth > el.clientWidth + 1 &&
+          /(auto|scroll)/.test(getComputedStyle(el).overflowX)
+        ) {
+          return;
+        }
+        el = el.parentElement;
+      }
     }
 
     // Right swipe (deltaX > 55)

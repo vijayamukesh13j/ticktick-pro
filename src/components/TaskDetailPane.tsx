@@ -364,13 +364,20 @@ export const TaskDetailPane: React.FC = () => {
       currentDraft.startDate || (currentDraft.recurrenceRule ? resolvedDueDate : undefined);
 
     // Parse edited title for any inline #tags or ~listName so editing a saved task name can also assign lists or new tags!
-    const parsedFromTitle = parseNaturalLanguageTask(currentDraft.title);
+    const titleChanged = currentDraft.title !== task.title;
+    const parsedFromTitle = titleChanged
+      ? parseNaturalLanguageTask(currentDraft.title)
+      : { tags: [] as string[], listName: undefined, cleanTitle: currentDraft.title };
     let resolvedTitle = currentDraft.title.trim() || 'Untitled Task';
     let resolvedListId = currentDraft.listId;
     let resolvedTags = [...currentDraft.tags];
 
-    if (parsedFromTitle.tags.length > 0 || parsedFromTitle.listName) {
-      resolvedTitle = parsedFromTitle.cleanTitle || resolvedTitle;
+    if (titleChanged && (parsedFromTitle.tags.length > 0 || parsedFromTitle.listName)) {
+      resolvedTitle =
+        currentDraft.title
+          .replace(/(?:^|\s)[#~][a-zA-Z0-9_-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim() || resolvedTitle;
     }
 
     if (parsedFromTitle.tags.length > 0) {
@@ -454,11 +461,16 @@ export const TaskDetailPane: React.FC = () => {
 
   // Keyboard shortcut: Ctrl+S / Cmd+S to save, Escape to close
   useEffect(() => {
+    if (!task) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         handleSave();
-      } else if (e.key === 'Escape') {
+      } else if (
+        e.key === 'Escape' &&
+        !e.defaultPrevented &&
+        !document.querySelector('[role="dialog"]')
+      ) {
         setSelectedTaskId(null);
       }
     };

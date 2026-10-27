@@ -433,8 +433,15 @@ CREATE TABLE IF NOT EXISTS public.ticktick_workspace (
   payload JSONB NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-ALTER TABLE public.ticktick_workspace DISABLE ROW LEVEL SECURITY;
-GRANT ALL ON TABLE public.ticktick_workspace TO anon, authenticated, service_role;
+ALTER TABLE public.ticktick_workspace ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid();
+ALTER TABLE public.ticktick_workspace ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated user full workspace access" ON public.ticktick_workspace;
+CREATE POLICY "Allow authenticated user full workspace access"
+  ON public.ticktick_workspace
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- 2. User Profiles Table (syncs user display name)
 CREATE TABLE IF NOT EXISTS public.profiles (
@@ -444,8 +451,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   email TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
-GRANT ALL ON TABLE public.profiles TO anon, authenticated, service_role;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid();
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated user full profile access" ON public.profiles;
+CREATE POLICY "Allow authenticated user full profile access"
+  ON public.profiles
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- 3. Tasks Table (syncs task name, status, priority, due date)
 CREATE TABLE IF NOT EXISTS public.tasks (
@@ -459,8 +473,15 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   list_id TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-ALTER TABLE public.tasks DISABLE ROW LEVEL SECURITY;
-GRANT ALL ON TABLE public.tasks TO anon, authenticated, service_role;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid();
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated user full tasks access" ON public.tasks;
+CREATE POLICY "Allow authenticated user full tasks access"
+  ON public.tasks
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- 4. Lists Table (syncs list names)
 CREATE TABLE IF NOT EXISTS public.lists (
@@ -469,8 +490,15 @@ CREATE TABLE IF NOT EXISTS public.lists (
   color TEXT,
   emoji TEXT
 );
-ALTER TABLE public.lists DISABLE ROW LEVEL SECURITY;
-GRANT ALL ON TABLE public.lists TO anon, authenticated, service_role;`
+ALTER TABLE public.lists ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid();
+ALTER TABLE public.lists ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow authenticated user full lists access" ON public.lists;
+CREATE POLICY "Allow authenticated user full lists access"
+  ON public.lists
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);`
                       );
                       setSyncMessage('Copied Complete PostgreSQL Schema SQL to clipboard!');
                     }}
@@ -480,19 +508,14 @@ GRANT ALL ON TABLE public.lists TO anon, authenticated, service_role;`
                   </button>
                 </div>
                 <pre className="text-[10px] font-mono text-zinc-700 bg-white p-2.5 rounded-lg border border-zinc-200/70 overflow-x-auto leading-relaxed">
-{`-- Creates ticktick_workspace, profiles (name), tasks (name/title) & lists:
+{`-- Creates / migrates ticktick_workspace, profiles, tasks & lists with Row Level Security:
 CREATE TABLE IF NOT EXISTS public.ticktick_workspace (
   id TEXT PRIMARY KEY, name TEXT, payload JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id TEXT PRIMARY KEY, name TEXT, full_name TEXT, email TEXT, updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE TABLE IF NOT EXISTS public.tasks (
-  id TEXT PRIMARY KEY, name TEXT, title TEXT, content TEXT, status TEXT, due_date TEXT
-);
-ALTER TABLE public.ticktick_workspace DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tasks DISABLE ROW LEVEL SECURITY;`}
+ALTER TABLE public.ticktick_workspace ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid();
+ALTER TABLE public.ticktick_workspace ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "user_workspace" ON public.ticktick_workspace;
+CREATE POLICY "user_workspace" ON public.ticktick_workspace FOR ALL TO authenticated USING (auth.uid() = user_id);`}
                 </pre>
               </div>
 
@@ -534,7 +557,7 @@ ALTER TABLE public.tasks DISABLE ROW LEVEL SECURITY;`}
                     className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-300 font-mono focus:outline-none focus:border-zinc-900"
                   />
                   <p className="text-[11px] text-zinc-500 mt-1">
-                    Your database credentials are saved securely in this browser for future visits.
+                    Your database credentials are saved locally in your browser's localStorage for future visits.
                   </p>
                 </div>
 

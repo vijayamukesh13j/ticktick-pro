@@ -144,12 +144,13 @@ export const EisenhowerMatrixModule: React.FC = () => {
     return DEFAULT_QUADRANTS;
   });
 
-  // Global settings
+  // Global settings: default hideCompleted to true so completed tasks are removed by default
   const [hideCompleted, setHideCompleted] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('ticktick_eisenhower_hide_completed') === 'true';
+      const stored = localStorage.getItem('ticktick_eisenhower_hide_completed');
+      return stored !== 'false';
     } catch {
-      return false;
+      return true;
     }
   });
 
@@ -288,8 +289,10 @@ export const EisenhowerMatrixModule: React.FC = () => {
   };
 
   const matrixTasks = useMemo(() => {
-    return tasks.filter((t) => t.status !== 'trash' && t.status !== 'wont_do');
-  }, [tasks]);
+    return tasks.filter(
+      (t) => (!hideCompleted || t.status !== 'completed') && t.status !== 'trash' && t.status !== 'wont_do'
+    );
+  }, [tasks, hideCompleted]);
 
   const selectedTask = tasks.find((t) => t.id === matrixPopoverTaskId) || null;
 
@@ -344,9 +347,21 @@ export const EisenhowerMatrixModule: React.FC = () => {
   ) => {
     const setting = quadrantSettings[qId] || { groupBy: 'time', sortBy: 'time', order: 'asc' };
 
-    const visibleTasks = hideCompleted
-      ? quadrantTasks.filter((t) => t.status !== 'completed')
-      : quadrantTasks;
+    // Always exclude completed tasks from the grouped sections (they render in the dedicated Completed section)
+    const rawVisible = quadrantTasks.filter((t) => t.status !== 'completed');
+    const dir = setting.order === 'desc' ? -1 : 1;
+    const visibleTasks = [...rawVisible].sort((a, b) => {
+      if (setting.sortBy === 'title') {
+        return a.title.localeCompare(b.title) * dir;
+      }
+      if (setting.sortBy === 'priority') {
+        return (a.priority - b.priority) * dir;
+      }
+      if (setting.sortBy === 'list') {
+        return (a.listId || '').localeCompare(b.listId || '') * dir;
+      }
+      return (a.dueDate || '9999-99-99').localeCompare(b.dueDate || '9999-99-99') * dir;
+    });
 
     if (setting.groupBy === 'none') {
       return [{ groupKey: 'all', title: '', tasks: visibleTasks }];
@@ -581,7 +596,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
               Eisenhower Matrix
             </h1>
             <span className="text-xs font-mono-num text-zinc-400">
-              {matrixTasks.filter((t) => t.status !== 'completed').length} active
+              {matrixTasks.length} active
             </span>
           </div>
 
@@ -679,13 +694,13 @@ export const EisenhowerMatrixModule: React.FC = () => {
                   : 'bg-zinc-100 text-zinc-500'
               }`}
             >
-              {matrixTasks.filter((t) => t.status !== 'completed').length}
+              {matrixTasks.length}
             </span>
           </button>
 
           {quadrantConfigs.map((q) => {
             const count = matrixTasks.filter(
-              (t) => resolveTaskQuadrant(t) === q.id && t.status !== 'completed'
+              (t) => resolveTaskQuadrant(t) === q.id
             ).length;
             const isSelected = mobileQuadrantFilter === q.id;
             const shortName =
@@ -733,7 +748,7 @@ export const EisenhowerMatrixModule: React.FC = () => {
             const isHiddenOnMobile =
               mobileQuadrantFilter !== 'all' && mobileQuadrantFilter !== q.id;
             const isCollapsedByHeader = Boolean(collapsedQuadrants[q.id]);
-            const groupedSections = groupQuadrantTasks(qAllTasks, q.id);
+            const groupedSections = groupQuadrantTasks(qActiveTasks, q.id);
             const isQuickAddActive = activeQuickAddQId === q.id;
             const isQuadrantMenuOpen = activeQuadrantMenuQId === q.id;
 
@@ -1324,35 +1339,13 @@ export const EisenhowerMatrixModule: React.FC = () => {
                             );
                           })}
 
-                          {/* Completed section */}
                           {!hideCompleted && qCompletedTasks.length > 0 && (
-                            <div className="pt-2 border-t border-zinc-100">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setCollapsedGroups((prev) => ({
-                                    ...prev,
-                                    [`${q.id}-completed`]: !prev[`${q.id}-completed`],
-                                  }))
-                                }
-                                className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-700 px-2 py-1"
-                              >
-                                {collapsedGroups[`${q.id}-completed`] ? (
-                                  <ChevronRight className="w-3 h-3" />
-                                ) : (
-                                  <ChevronDown className="w-3 h-3" />
-                                )}
+                            <div className="pt-2 border-t border-zinc-100 space-y-0.5">
+                              <div className="px-2 py-1 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
                                 <span>Completed</span>
-                                <span className="font-mono-num text-[11px]">
-                                  {qCompletedTasks.length}
-                                </span>
-                              </button>
-
-                              {!collapsedGroups[`${q.id}-completed`] && (
-                                <div className="space-y-0.5 pt-0.5">
-                                  {qCompletedTasks.map((task) => renderQuadrantTaskRow(task, q.id))}
-                                </div>
-                              )}
+                                <span className="font-mono-num">{qCompletedTasks.length}</span>
+                              </div>
+                              {qCompletedTasks.map((task) => renderQuadrantTaskRow(task, q.id))}
                             </div>
                           )}
                         </>

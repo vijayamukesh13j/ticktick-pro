@@ -96,6 +96,7 @@ export const TaskSidebar: React.FC = () => {
   const [listViewMode, setListViewMode] = useState<ViewMode>('list');
   const [listType, setListType] = useState<'task' | 'note'>('task');
   const [showInSmartList, setShowInSmartList] = useState<'all' | 'hidden'>('all');
+  const [showArchivedLists, setShowArchivedLists] = useState(false);
 
   // Create / Edit Folder State
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
@@ -341,6 +342,7 @@ export const TaskSidebar: React.FC = () => {
   ];
 
   const visibleLists = lists.filter((l) => !l.isArchived);
+  const archivedLists = lists.filter((l) => l.isArchived);
   const ungroupedLists = visibleLists
     .filter((l) => !l.folderId)
     .sort((a, b) => (a.isPinned === b.isPinned ? 0 : a.isPinned ? -1 : 1));
@@ -721,6 +723,55 @@ export const TaskSidebar: React.FC = () => {
 
             {/* Ungrouped Lists */}
             {ungroupedLists.map(renderListRow)}
+
+            {/* Archived Lists Collapsible */}
+            {archivedLists.length > 0 && (
+              <div className="pt-2 border-t border-zinc-200/60 mt-2 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setShowArchivedLists((v) => !v)}
+                  className="flex items-center justify-between w-full px-2 py-1 text-[11px] font-semibold text-zinc-400 hover:text-zinc-600 rounded transition-colors"
+                >
+                  <span className="flex items-center gap-1.5">
+                    {showArchivedLists ? (
+                      <ChevronDown className="w-3.5 h-3.5 text-zinc-400" strokeWidth={1.75} />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-400" strokeWidth={1.75} />
+                    )}
+                    <span>Archived Lists ({archivedLists.length})</span>
+                  </span>
+                </button>
+                {showArchivedLists && (
+                  <div className="space-y-0.5 pl-3">
+                    {archivedLists.map((list) => (
+                      <div
+                        key={list.id}
+                        className="flex items-center justify-between px-2 py-1.5 rounded-lg text-xs text-zinc-500 hover:bg-zinc-200/50 group"
+                      >
+                        <span className="flex items-center gap-2 truncate min-w-0">
+                          {list.emoji ? (
+                            <span className="text-xs shrink-0">{list.emoji}</span>
+                          ) : (
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: list.color }}
+                            />
+                          )}
+                          <span className="truncate line-through text-zinc-400">{list.name}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => updateList(list.id, { isArchived: false })}
+                          className="text-[10px] font-medium text-blue-600 hover:text-blue-700 px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200/50 shrink-0"
+                        >
+                          Unarchive
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

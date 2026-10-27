@@ -9,6 +9,7 @@ import {
   getDay,
   getDate,
   getMonth,
+  getDaysInMonth,
 } from 'date-fns';
 import { Task } from '../types';
 
@@ -58,18 +59,19 @@ export function getNextOccurrenceDate(baseDateStr: string, rule: string): string
  */
 export function isTaskDueOnDate(task: Task, targetDateStr: string): boolean {
   if (task.status === 'trash' || task.status === 'wont_do') return false;
+  const dueDate = task.dueDate?.slice(0, 10);
 
   // Exact match on dueDate
-  if (task.dueDate === targetDateStr) return true;
+  if (dueDate === targetDateStr) return true;
 
   // Non-recurring, unscheduled, or already completed tasks only appear on their exact date
-  if (!task.recurrenceRule || !task.dueDate || task.status === 'completed') return false;
+  if (!task.recurrenceRule || !dueDate || task.status === 'completed') return false;
 
   // A recurring task does not project into the past before its base dueDate
-  if (targetDateStr < task.dueDate) return false;
+  if (targetDateStr < dueDate) return false;
 
   try {
-    const baseDate = parseISO(task.dueDate);
+    const baseDate = parseISO(dueDate);
     const targetDate = parseISO(targetDateStr);
     if (isNaN(baseDate.getTime()) || isNaN(targetDate.getTime())) return false;
 
@@ -85,10 +87,11 @@ export function isTaskDueOnDate(task: Task, targetDateStr: string): boolean {
       case 'weekly':
         return getDay(targetDate) === getDay(baseDate);
       case 'monthly':
-        return getDate(targetDate) === getDate(baseDate);
+        return getDate(targetDate) === Math.min(getDate(baseDate), getDaysInMonth(targetDate));
       case 'yearly':
         return (
-          getMonth(targetDate) === getMonth(baseDate) && getDate(targetDate) === getDate(baseDate)
+          getMonth(targetDate) === getMonth(baseDate) &&
+          getDate(targetDate) === Math.min(getDate(baseDate), getDaysInMonth(targetDate))
         );
       default:
         return false;
@@ -103,11 +106,12 @@ export function isTaskDueOnDate(task: Task, targetDateStr: string): boolean {
  */
 export function isTaskDueInDateRange(task: Task, startStr: string, endStr: string): boolean {
   if (task.status === 'trash' || task.status === 'wont_do') return false;
-  if (task.dueDate && task.dueDate >= startStr && task.dueDate <= endStr) return true;
-  if (!task.recurrenceRule || !task.dueDate || task.status === 'completed') return false;
+  const dueDate = task.dueDate?.slice(0, 10);
+  if (dueDate && dueDate >= startStr && dueDate <= endStr) return true;
+  if (!task.recurrenceRule || !dueDate || task.status === 'completed') return false;
 
   // Cannot occur if the first occurrence is after the end date
-  if (task.dueDate > endStr) return false;
+  if (dueDate > endStr) return false;
 
   // Check each day in the range (typically 7-31 days)
   let curr = parseISO(startStr);

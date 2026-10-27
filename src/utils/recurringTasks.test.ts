@@ -82,6 +82,26 @@ describe('recurringTasks utility', () => {
     expect(isTaskDueOnDate(weeklyTask, '2026-10-25')).toBe(true); // Sunday
     expect(isTaskDueOnDate(weeklyTask, '2026-10-26')).toBe(false); // Monday
     expect(isTaskDueOnDate(weeklyTask, '2026-11-01')).toBe(true); // Next Sunday
+
+    // Monthly task on 31st properly clamps to 30th in 30-day months
+    const monthEndTask: Task = {
+      ...dailyTask,
+      id: 'task-31',
+      dueDate: '2026-01-31',
+      recurrenceRule: 'monthly',
+    };
+    expect(isTaskDueOnDate(monthEndTask, '2026-04-30')).toBe(true); // April has 30 days
+    expect(isTaskDueOnDate(monthEndTask, '2026-02-28')).toBe(true); // Feb 2026 has 28 days
+
+    // ISO datetime format normalization
+    const isoTask: Task = {
+      ...dailyTask,
+      id: 'task-iso',
+      dueDate: '2026-10-25T14:30:00.000Z',
+      recurrenceRule: undefined,
+    };
+    expect(isTaskDueOnDate(isoTask, '2026-10-25')).toBe(true);
+    expect(isTaskDueInDateRange(isoTask, '2026-10-24', '2026-10-26')).toBe(true);
   });
 
   it('checks isTaskDueInDateRange accurately', () => {

@@ -578,65 +578,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const prefs = preferencesRef.current;
       const currentTaskId = activePomoTaskIdRef.current;
       const currentTasks = tasksRef.current;
+      const currentPhase = pomoPhaseRef.current;
+
+      const phaseDuration =
+        currentPhase === 'work'
+          ? prefs.pomoDuration
+          : currentPhase === 'short_break'
+            ? prefs.shortBreakDuration
+            : prefs.longBreakDuration;
 
       const elapsedMinutes =
         currentMode === 'pomo'
-          ? Math.max(
-              1,
-              Math.round((prefs.pomoDuration * 60 - currentSeconds) / 60) ||
-                prefs.pomoDuration
-            )
-          : Math.max(1, Math.round(currentStopwatch / 60));
+          ? Math.round((phaseDuration * 60 - currentSeconds) / 60)
+          : Math.round(currentStopwatch / 60);
 
-      const targetTask = currentTasks.find((t) => t.id === currentTaskId);
-      const session: PomodoroSession = {
-        id: `pomo-${Date.now()}`,
-        taskId: targetTask?.id,
-        taskTitle: targetTask?.title || 'Deep Focus Session',
-        mode: currentMode,
-        startTime: new Date(now.getTime() - elapsedMinutes * 60 * 1000).toISOString(),
-        endTime: now.toISOString(),
-        durationMinutes: elapsedMinutes,
-        note:
-          note ||
-          `Focused for ${elapsedMinutes}m (${currentMode === 'stopwatch' ? 'Stopwatch' : 'Pomodoro'})`,
-        whiteNoiseUsed: activeWhiteNoise !== 'none' ? activeWhiteNoise : undefined,
-      };
+      const isBreakPhase = currentMode === 'pomo' && currentPhase !== 'work';
 
-      setPomodoroSessions((prev) => [session, ...prev]);
+      if (!isBreakPhase && elapsedMinutes > 0) {
+        const targetTask = currentTasks.find((t) => t.id === currentTaskId);
+        const session: PomodoroSession = {
+          id: `pomo-${Date.now()}`,
+          taskId: targetTask?.id,
+          taskTitle: targetTask?.title || 'Deep Focus Session',
+          mode: currentMode,
+          startTime: new Date(now.getTime() - elapsedMinutes * 60 * 1000).toISOString(),
+          endTime: now.toISOString(),
+          durationMinutes: elapsedMinutes,
+          note:
+            note ||
+            `Focused for ${elapsedMinutes}m (${currentMode === 'stopwatch' ? 'Stopwatch' : 'Pomodoro'})`,
+          whiteNoiseUsed: activeWhiteNoise !== 'none' ? activeWhiteNoise : undefined,
+        };
 
-      if (targetTask) {
-        updateTaskRef.current(
-          targetTask.id,
-          {
-            completedPomos: targetTask.completedPomos + 1,
-            focusSeconds: targetTask.focusSeconds + elapsedMinutes * 60,
-          },
-          `Logged ${elapsedMinutes}m ${currentMode === 'stopwatch' ? 'Stopwatch' : 'Pomodoro'} focus session`
-        );
+        setPomodoroSessions((prev) => [session, ...prev]);
+
+        if (targetTask) {
+          updateTaskRef.current(
+            targetTask.id,
+            {
+              completedPomos: targetTask.completedPomos + (currentMode === 'pomo' ? 1 : 0),
+              focusSeconds: targetTask.focusSeconds + elapsedMinutes * 60,
+            },
+            `Logged ${elapsedMinutes}m ${currentMode === 'stopwatch' ? 'Stopwatch' : 'Pomodoro'} focus session`
+          );
+        }
+
+        setPreferences((prev) => ({
+          ...prev,
+          achievementScore: prev.achievementScore + 15,
+        }));
+
+        if (prefs.soundAlertEnabled) {
+          soundEngine.playPomodoroCompleteAlarm();
+        }
+        pushToast({
+          title: `Focus session logged (+${elapsedMinutes}m)`,
+          description: targetTask ? targetTask.title : 'Achievement Score +15',
+          kind: 'success',
+        });
+      } else if (isBreakPhase) {
+        pushToast({
+          title: 'Break completed',
+          description: 'Ready to refocus!',
+          kind: 'info',
+        });
       }
-
-      setPreferences((prev) => ({
-        ...prev,
-        achievementScore: prev.achievementScore + 15,
-      }));
-
-      if (prefs.soundAlertEnabled) {
-        soundEngine.playPomodoroCompleteAlarm();
-      }
-      pushToast({
-        title: `Focus session logged (+${elapsedMinutes}m)`,
-        description: targetTask ? targetTask.title : 'Achievement Score +15',
-        kind: 'success',
-      });
 
       // Reset only the completed mode cleanly without stopping the other mode
       if (currentMode === 'pomo') {
         setPomoTimerRunning(false);
         const defaultSecs =
-          pomoPhaseRef.current === 'work'
+          currentPhase === 'work'
             ? prefs.pomoDuration * 60
-            : pomoPhaseRef.current === 'short_break'
+            : currentPhase === 'short_break'
               ? prefs.shortBreakDuration * 60
               : prefs.longBreakDuration * 60;
         setPomoSecondsLeft(defaultSecs);
@@ -664,7 +678,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setStopwatchSeconds(elapsed);
       },
       () => {
-        completeCurrentPomoSession('Completed full scheduled session', 'pomo');
+        if (pomoPhaseRef.current === 'work') {
+          completeCurrentPomoSession('Completed full scheduled session', 'pomo');
+        } else {
+          completeCurrentPomoSession('Break completed', 'pomo');
+        }
       }
     );
     return () => unsubscribe();
@@ -978,7 +996,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const completedInstance: Task = {
         ...target,
-        id: crypto.randomUUID(),
+        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         status: 'completed',
         dueDate: baseDate,
         startDate: target.startDate || baseDate,
@@ -1589,10 +1607,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ts = Date.now();
     localUpdatedAtRef.current = ts;
     localStorage.setItem('ticktick_v2_updated_at', String(ts));
-    if (channelRef.current) {
-      channelRef.current.unsubscribe();
-      channelRef.current = null;
+
+    // Keep Realtime channel active so blank slate is broadcast and persisted to cloud
+    const client = getSupabaseClient();
+    if (client) {
+      const blankSnap: CloudWorkspaceSnapshot = {
+        deviceId: deviceIdRef.current,
+        updatedAt: ts,
+        userName: preferencesRef.current.fullName,
+        preferences: {
+          fullName: preferencesRef.current.fullName,
+          email: preferencesRef.current.email,
+          theme: preferencesRef.current.theme,
+          achievementScore: 0,
+        },
+        tasks: [],
+        lists: [],
+        folders: [],
+        sections: [],
+        tags: [],
+        habits: [],
+        pomodoroSessions: [],
+        countdowns: [],
+        customFilters: [],
+        templates: [],
+        calendarSubscriptions: [],
+      };
+      if (channelRef.current) {
+        channelRef.current.track(blankSnap).catch(() => {});
+        channelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'workspace-sync',
+            payload: blankSnap,
+          })
+          .catch(() => {});
+      }
+      (async () => {
+        try {
+          const { error } = await client
+            .from('ticktick_workspace')
+            .upsert({
+              id: 'default',
+              name: preferencesRef.current.fullName,
+              payload: blankSnap,
+              updated_at: new Date().toISOString(),
+            });
+          if (error) {
+            pushToast({
+              title: 'Cloud sync warning',
+              description: `Cleared locally, but cloud update failed: ${error.message}`,
+              kind: 'info',
+            });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Cloud update error';
+          pushToast({
+            title: 'Cloud sync warning',
+            description: `Cleared locally, but cloud update failed: ${msg}`,
+            kind: 'info',
+          });
+        }
+      })();
     }
+
     saveStored('tasks', []);
     saveStored('lists', []);
     saveStored('folders', []);
@@ -2104,48 +2182,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             customFilters: [],
           };
           sourceLabel = 'Supabase PostgreSQL (Recovered Personal Data)';
-        } else if (bestSnapshot && Array.isArray(bestSnapshot.tasks)) {
-          // Merge any personal tasks from public.tasks that might be missing from bestSnapshot
-          const existingTaskIds = new Set(bestSnapshot.tasks.map((t) => t.id));
-          const missingPersonalTasks = personalTableTasks.filter(
-            (t) => !existingTaskIds.has(t.id)
-          );
-          if (missingPersonalTasks.length > 0) {
-            bestSnapshot = {
-              ...bestSnapshot,
-              tasks: [...missingPersonalTasks, ...bestSnapshot.tasks],
-            };
-          }
-          if (personalTableLists.length > 0) {
-            const existingListIds = new Set((bestSnapshot.lists || []).map((l) => l.id));
-            const missingPersonalLists = personalTableLists.filter(
-              (l) => !existingListIds.has(l.id)
-            );
-            if (missingPersonalLists.length > 0) {
-              bestSnapshot = {
-                ...bestSnapshot,
-                lists: [...(bestSnapshot.lists || []), ...missingPersonalLists],
-              };
-            }
-          }
-          if (personalTablePomos.length > 0) {
-            const existingPomoIds = new Set(
-              (bestSnapshot.pomodoroSessions || []).map((p) => p.id)
-            );
-            const missingPersonalPomos = personalTablePomos.filter(
-              (p) => !existingPomoIds.has(p.id)
-            );
-            if (missingPersonalPomos.length > 0) {
-              bestSnapshot = {
-                ...bestSnapshot,
-                pomodoroSessions: [
-                  ...missingPersonalPomos,
-                  ...(bestSnapshot.pomodoroSessions || []),
-                ],
-              };
-            }
-          }
         }
+        // Do not merge table rows into an authoritative snapshot; they are never pruned on delete.
 
         // 3. Check active Supabase Realtime Presence state & request live peer state
         let channel = channelRef.current;
@@ -2189,7 +2227,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSupabaseLastSyncedAt(syncedTime);
         setSupabaseStatus('connected');
 
-        if (bestSnapshot && Array.isArray(bestSnapshot.tasks)) {
+        const isExplicitPull = !options?.isInitialConnect;
+        const remoteIsNewer =
+          isMockSeedTaskList(tasksRef.current) ||
+          (bestSnapshot?.updatedAt || 0) >= localUpdatedAtRef.current;
+
+        if (bestSnapshot && Array.isArray(bestSnapshot.tasks) && (isExplicitPull || remoteIsNewer)) {
           applyRemoteSnapshot(bestSnapshot, options?.silent);
           // If ticktick_workspace had been polluted by mock data, heal it immediately with the recovered personal snapshot
           if (wsWasMockOverwritten) {
@@ -2206,7 +2249,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           return {
             ok: true,
-            message: `Pulled ${bestSnapshot.tasks.length} personal tasks from ${sourceLabel} at ${syncedTime}.`,
+            message: `Pulled ${bestSnapshot.tasks.length} personal tasks from ${sourceLabel} at ${syncedTime}.${
+              isExplicitPull && !remoteIsNewer ? ' (Replaced local edits with cloud snapshot)' : ''
+            }`,
+          };
+        } else if (bestSnapshot && Array.isArray(bestSnapshot.tasks) && !remoteIsNewer) {
+          // On startup/initial connection, local data is newer than remote snapshot; sync local to cloud to prevent data loss
+          const localSnap = buildSnapshotRef.current(Date.now());
+          try {
+            const { error } = await client.from('ticktick_workspace').upsert({
+              id: 'default',
+              name: preferencesRef.current.fullName,
+              payload: localSnap,
+              updated_at: new Date().toISOString(),
+            });
+            if (error) {
+              setSupabaseStatus('error');
+              setSupabaseErrorMessage(error.message);
+              return {
+                ok: false,
+                message: `Failed to persist newer local workspace to cloud: ${error.message}`,
+              };
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Upload error';
+            setSupabaseStatus('error');
+            setSupabaseErrorMessage(msg);
+            return {
+              ok: false,
+              message: `Failed to persist newer local workspace to cloud: ${msg}`,
+            };
+          }
+          return {
+            ok: true,
+            message: `Local data is newer than remote snapshot; synced local changes to cloud at ${syncedTime}.`,
           };
         }
 
@@ -2450,16 +2526,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSupabaseErrorMessage(null);
     hasCompletedInitialPullRef.current = false;
     try {
-      const { error } = await client.auth.getSession();
+      const { data: sessionData, error } = await client.auth.getSession();
       if (error) {
         setSupabaseStatus('error');
         setSupabaseErrorMessage(error.message);
         return false;
       }
+      if (!sessionData?.session) {
+        try {
+          await client.auth.signInAnonymously();
+        } catch {
+          // continue with the anon key; the pull reports its own errors
+        }
+      }
       setupRealtimeChannel();
       // Immediately pull the user's personal data from the database (and strip mock data if on a new device)
-      await pullWorkspaceFromSupabase({ isInitialConnect: true, silent: false });
+      const pullRes = await pullWorkspaceFromSupabase({ isInitialConnect: true, silent: false });
       hasCompletedInitialPullRef.current = true;
+      if (!pullRes.ok) {
+        return false;
+      }
       setSupabaseStatus('connected');
       setSupabaseLastSyncedAt(format(new Date(), 'HH:mm:ss'));
       setIsDatabasePromptOpen(false);

@@ -492,6 +492,9 @@ test.describe('TickTick Pro — Desktop & Mobile E2E Suite', () => {
 
     // Mock remote Supabase REST response to verify new-device connection pulls personal data instead of keeping mock data
     const todayIso = new Date().toLocaleDateString('en-CA');
+    await page.route('**/auth/v1/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{"session":null,"user":null}' });
+    });
     await page.route('**/rest/v1/**', async (route) => {
       if (route.request().url().includes('/ticktick_workspace') && route.request().method() === 'GET') {
         await route.fulfill({
