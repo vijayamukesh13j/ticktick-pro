@@ -1,5 +1,5 @@
 /* TickTick Pro Service Worker */
-const CACHE_NAME = 'ticktick-pro-v3';
+const CACHE_NAME = 'ticktick-pro-v4';
 
 const STATIC_ASSETS = [
   './',

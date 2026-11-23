@@ -53,6 +53,14 @@ import {
 } from '../utils/notificationEngine';
 import { getNextOccurrenceDate } from '../utils/recurringTasks';
 import { pruneOldFocusSessions } from '../utils/focusLogs';
+import { pruneExpiredTrashTasks } from '../utils/trashCleanup';
+import { mergeWorkspaceSnapshots } from '../utils/syncMerge';
+import {
+  parseWorkspaceBackup,
+  serializeWorkspaceBackup,
+  tasksToCsv,
+  triggerBrowserDownload,
+} from '../utils/backupUtils';
 
 const STORAGE_PREFIX = 'ticktick_pro_v2_';
 
@@ -128,6 +136,7 @@ interface AppContextValue {
   toggleTaskStatus: (id: string) => void;
   deleteTask: (id: string, permanent?: boolean) => void;
   restoreTask: (id: string) => void;
+  emptyTrash: () => void;
   duplicateTask: (id: string) => void;
   addSubtask: (taskId: string, title: string) => void;
   toggleSubtask: (taskId: string, subtaskId: string) => void;
@@ -174,6 +183,7 @@ interface AppContextValue {
     note?: string,
     mood?: HabitLogEntry['mood']
   ) => void;
+  toggleHabitSkip: (habitId: string, dateStr: string) => void;
   deleteHabitLog: (habitId: string, dateStr: string) => void;
   clearHabitLogs: (habitId: string) => void;
   deleteHabit: (id: string) => void;
@@ -226,6 +236,9 @@ interface AppContextValue {
   setTheme: (theme: ThemeId) => void;
   resetDemoWorkspace: () => void;
   clearAllWorkspaceData: () => void;
+  exportBackupJson: () => void;
+  exportTasksCsv: () => void;
+  importBackupJson: (rawJson: string) => boolean;
 
   // Reminders & Active Alerts
   activeReminder: ActiveReminderAlert | null;
@@ -240,6 +253,8 @@ interface AppContextValue {
   supabaseUserEmail: string | null;
   supabaseLastSyncedAt: string | null;
   supabaseErrorMessage: string | null;
+  isOnline: boolean;
+  hasPendingSync: boolean;
   connectSupabase: (url: string, anonKey: string) => Promise<boolean>;
   disconnectSupabase: () => void;
   syncWorkspaceToSupabase: () => Promise<{ ok: boolean; message: string }>;
@@ -298,7 +313,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   // Core data persisted in localStorage + synced to Supabase
-  const [tasks, setTasks] = useState<Task[]>(() => loadStored('tasks', INITIAL_TASKS));
+  const [tasks, setTasks] = useState<Task[]>(() =>
+    pruneExpiredTrashTasks(loadStored('tasks', INITIAL_TASKS))
+  );
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+  const [hasPendingSync, setHasPendingSync] = useState<boolean>(false);
   const [lists, setLists] = useState<TaskList[]>(() => loadStored('lists', INITIAL_LISTS));
   const [folders, setFolders] = useState<Folder[]>(() => loadStored('folders', INITIAL_FOLDERS));
   const [sections, setSections] = useState<TaskSection[]>(() =>
@@ -1067,7 +1088,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (selectedTaskId === id) setSelectedTaskId(null);
     if (permanent) {
       setTasks((prev) => prev.filter((t) => t.id !== id));
-      pushToast({ title: 'Task permanently deleted', kind: 'info' });
+      pushToast({
+        title: 'Task permanently deleted',
+        description: target?.title,
+        kind: 'info',
+        onUndo: target
+          ? () => {
+              setTasks((prev) =>
+                prev.some((t) => t.id === target.id) ? prev : [target, ...prev]
+              );
+              pushToast({ title: 'Task restored', description: target.title, kind: 'success' });
+            }
+          : undefined,
+      });
     } else {
       updateTask(id, { status: 'trash' }, 'Moved task to Trash');
       pushToast({
@@ -1082,6 +1115,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const restoreTask = (id: string) => {
     updateTask(id, { status: 'todo' }, 'Restored task from Trash');
     pushToast({ title: 'Task restored', kind: 'success' });
+  };
+
+  const emptyTrash = () => {
+    const trashed = tasks.filter((t) => t.status === 'trash');
+    if (trashed.length === 0) return;
+    if (selectedTaskId && trashed.some((t) => t.id === selectedTaskId)) {
+      setSelectedTaskId(null);
+    }
+    setTasks((prev) => prev.filter((t) => t.status !== 'trash'));
+    pushToast({
+      title: `Emptied ${trashed.length} task${trashed.length === 1 ? '' : 's'} from Trash`,
+      kind: 'info',
+      onUndo: () => {
+        setTasks((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const toRestore = trashed.filter((t) => !existingIds.has(t.id));
+          return [...toRestore, ...prev];
+        });
+        pushToast({ title: 'Trash restored', kind: 'success' });
+      },
+    });
   };
 
   const duplicateTask = (id: string) => {
@@ -1507,6 +1561,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const toggleHabitSkip = (habitId: string, dateStr: string) => {
+    setHabits((prev) =>
+      prev.map((habit) => {
+        if (habit.id !== habitId) return habit;
+        const existing = habit.logs[dateStr];
+        const nextLogs = { ...habit.logs };
+        if (existing?.skipped) {
+          delete nextLogs[dateStr];
+        } else {
+          nextLogs[dateStr] = {
+            value: 0,
+            completed: false,
+            skipped: true,
+            note: existing?.note || 'Rest day',
+            timestamp: new Date().toISOString(),
+          };
+        }
+        return { ...habit, logs: nextLogs };
+      })
+    );
+  };
+
   const deleteHabit = (id: string) => {
     setHabits((prev) => prev.filter((h) => h.id !== id));
   };
@@ -1828,7 +1904,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [buildSnapshot]);
 
   const applyRemoteSnapshot = useCallback(
-    (snap: Partial<CloudWorkspaceSnapshot>, silent = false) => {
+    (snap: Partial<CloudWorkspaceSnapshot>, silent = false, mergeWithLocal = false) => {
       if (!snap || !Array.isArray(snap.tasks)) return false;
       isApplyingRemoteRef.current = true;
       const nextTs = snap.updatedAt || Date.now();
@@ -1839,59 +1915,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // ignore
       }
 
-      setTasks(snap.tasks);
-      saveStored('tasks', snap.tasks);
+      // When both devices already hold personal data (e.g., realtime broadcast or post-offline merge),
+      // merge by updatedAt / log timestamp so edits from mobile and desktop never overwrite each other.
+      const localSnap = buildSnapshotRef.current();
+      const shouldMerge =
+        mergeWithLocal ||
+        (silent && hasCompletedInitialPullRef.current && !isMockSeedTaskList(localSnap.tasks));
+      const effectiveSnap = shouldMerge ? mergeWorkspaceSnapshots(localSnap, snap) : snap;
 
-      if (Array.isArray(snap.lists)) {
-        setLists(snap.lists);
-        saveStored('lists', snap.lists);
+      const cleanedTasks = pruneExpiredTrashTasks(effectiveSnap.tasks || snap.tasks);
+      setTasks(cleanedTasks);
+      saveStored('tasks', cleanedTasks);
+
+      if (Array.isArray(effectiveSnap.lists)) {
+        setLists(effectiveSnap.lists);
+        saveStored('lists', effectiveSnap.lists);
       }
-      if (Array.isArray(snap.folders)) {
-        setFolders(snap.folders);
-        saveStored('folders', snap.folders);
+      if (Array.isArray(effectiveSnap.folders)) {
+        setFolders(effectiveSnap.folders);
+        saveStored('folders', effectiveSnap.folders);
       }
-      if (Array.isArray(snap.sections)) {
-        setSections(snap.sections);
-        saveStored('sections', snap.sections);
+      if (Array.isArray(effectiveSnap.sections)) {
+        setSections(effectiveSnap.sections);
+        saveStored('sections', effectiveSnap.sections);
       }
-      if (Array.isArray(snap.tags)) {
-        setTags(snap.tags);
-        saveStored('tags', snap.tags);
+      if (Array.isArray(effectiveSnap.tags)) {
+        setTags(effectiveSnap.tags);
+        saveStored('tags', effectiveSnap.tags);
       }
-      if (Array.isArray(snap.habits)) {
-        setHabits(snap.habits);
-        saveStored('habits', snap.habits);
+      if (Array.isArray(effectiveSnap.habits)) {
+        setHabits(effectiveSnap.habits);
+        saveStored('habits', effectiveSnap.habits);
       }
-      if (Array.isArray(snap.pomodoroSessions)) {
-        const recentSessions = pruneOldFocusSessions(snap.pomodoroSessions);
+      if (Array.isArray(effectiveSnap.pomodoroSessions)) {
+        const recentSessions = pruneOldFocusSessions(effectiveSnap.pomodoroSessions);
         setPomodoroSessions(recentSessions);
         saveStored('pomo_sessions', recentSessions);
       }
-      if (Array.isArray(snap.countdowns)) {
-        setCountdowns(snap.countdowns);
-        saveStored('countdowns', snap.countdowns);
+      if (Array.isArray(effectiveSnap.countdowns)) {
+        setCountdowns(effectiveSnap.countdowns);
+        saveStored('countdowns', effectiveSnap.countdowns);
       }
-      if (Array.isArray(snap.customFilters)) {
-        setCustomFilters(snap.customFilters);
-        saveStored('filters', snap.customFilters);
+      if (Array.isArray(effectiveSnap.customFilters)) {
+        setCustomFilters(effectiveSnap.customFilters);
+        saveStored('filters', effectiveSnap.customFilters);
       }
-      if (Array.isArray(snap.templates)) {
-        setTemplates(snap.templates);
-        saveStored('templates', snap.templates);
+      if (Array.isArray(effectiveSnap.templates)) {
+        setTemplates(effectiveSnap.templates);
+        saveStored('templates', effectiveSnap.templates);
       }
-      if (Array.isArray(snap.calendarSubscriptions)) {
-        setCalendarSubscriptions(snap.calendarSubscriptions);
-        saveStored('cal_subs', snap.calendarSubscriptions);
+      if (Array.isArray(effectiveSnap.calendarSubscriptions)) {
+        setCalendarSubscriptions(effectiveSnap.calendarSubscriptions);
+        saveStored('cal_subs', effectiveSnap.calendarSubscriptions);
       }
-      if (snap.preferences?.fullName) {
+      if (effectiveSnap.preferences?.fullName) {
         setPreferences((prev) => ({
           ...prev,
-          fullName: snap.preferences?.fullName || prev.fullName,
-          email: snap.preferences?.email || prev.email,
-          theme: snap.preferences?.theme || prev.theme,
+          fullName: effectiveSnap.preferences?.fullName || prev.fullName,
+          email: effectiveSnap.preferences?.email || prev.email,
+          theme: effectiveSnap.preferences?.theme || prev.theme,
           achievementScore:
-            typeof snap.preferences?.achievementScore === 'number'
-              ? snap.preferences.achievementScore
+            typeof effectiveSnap.preferences?.achievementScore === 'number'
+              ? effectiveSnap.preferences.achievementScore
               : prev.achievementScore,
         }));
       } else if (snap.userName) {
@@ -1902,14 +1987,105 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSupabaseLastSyncedAt(syncedTime);
       setSupabaseStatus('connected');
       setSupabaseErrorMessage(null);
+      setHasPendingSync(false);
       if (!silent) {
         pushToast({
           title: 'Personal Data Loaded from Database',
-          description: `${snap.tasks.length} tasks & ${(snap.pomodoroSessions || []).length} focus logs synced`,
+          description: `${cleanedTasks.length} tasks & ${(effectiveSnap.pomodoroSessions || []).length} focus logs synced`,
           kind: 'success',
         });
       }
       return true;
+    },
+    [pushToast, isMockSeedTaskList]
+  );
+
+  const exportBackupJson = useCallback(() => {
+    const snap = buildSnapshotRef.current();
+    const json = serializeWorkspaceBackup(snap);
+    const dateStamp = format(new Date(), 'yyyy-MM-dd');
+    triggerBrowserDownload(json, `ticktick-pro-backup-${dateStamp}.json`, 'application/json');
+    pushToast({
+      title: 'Backup exported (JSON)',
+      description: `${snap.tasks.length} tasks & ${snap.habits.length} habits saved`,
+      kind: 'success',
+    });
+  }, [pushToast]);
+
+  const exportTasksCsv = useCallback(() => {
+    const csv = tasksToCsv(tasks, lists);
+    const dateStamp = format(new Date(), 'yyyy-MM-dd');
+    triggerBrowserDownload(csv, `ticktick-pro-tasks-${dateStamp}.csv`, 'text/csv;charset=utf-8;');
+    pushToast({
+      title: 'Tasks exported (CSV)',
+      description: `${tasks.filter((t) => t.status !== 'trash').length} tasks exported`,
+      kind: 'success',
+    });
+  }, [tasks, lists, pushToast]);
+
+  const importBackupJson = useCallback(
+    (rawJson: string): boolean => {
+      try {
+        const parsed = parseWorkspaceBackup(rawJson);
+        const merged = mergeWorkspaceSnapshots(buildSnapshotRef.current(), parsed);
+        const cleanedTasks = pruneExpiredTrashTasks(merged.tasks || []);
+        setTasks(cleanedTasks);
+        saveStored('tasks', cleanedTasks);
+        if (Array.isArray(merged.lists)) {
+          setLists(merged.lists);
+          saveStored('lists', merged.lists);
+        }
+        if (Array.isArray(merged.folders)) {
+          setFolders(merged.folders);
+          saveStored('folders', merged.folders);
+        }
+        if (Array.isArray(merged.sections)) {
+          setSections(merged.sections);
+          saveStored('sections', merged.sections);
+        }
+        if (Array.isArray(merged.tags)) {
+          setTags(merged.tags);
+          saveStored('tags', merged.tags);
+        }
+        if (Array.isArray(merged.habits)) {
+          setHabits(merged.habits);
+          saveStored('habits', merged.habits);
+        }
+        if (Array.isArray(merged.pomodoroSessions)) {
+          const recent = pruneOldFocusSessions(merged.pomodoroSessions);
+          setPomodoroSessions(recent);
+          saveStored('pomo_sessions', recent);
+        }
+        if (Array.isArray(merged.countdowns)) {
+          setCountdowns(merged.countdowns);
+          saveStored('countdowns', merged.countdowns);
+        }
+        if (Array.isArray(merged.customFilters)) {
+          setCustomFilters(merged.customFilters);
+          saveStored('filters', merged.customFilters);
+        }
+        if (Array.isArray(merged.templates)) {
+          setTemplates(merged.templates);
+          saveStored('templates', merged.templates);
+        }
+        if (Array.isArray(merged.calendarSubscriptions)) {
+          setCalendarSubscriptions(merged.calendarSubscriptions);
+          saveStored('cal_subs', merged.calendarSubscriptions);
+        }
+        pushToast({
+          title: 'Backup imported & merged',
+          description: `${cleanedTasks.length} tasks available in workspace`,
+          kind: 'success',
+        });
+        return true;
+      } catch (err) {
+        pushToast({
+          title: 'Backup import failed',
+          description: err instanceof Error ? err.message : 'Invalid backup file',
+          kind: 'info',
+        });
+        return false;
+      }
     },
     [pushToast]
   );
@@ -2402,7 +2578,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (isMockSeedTaskList(tasks)) return;
 
     const client = getSupabaseClient();
-    if (!client || !channelRef.current) return;
+    if (!client) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setHasPendingSync(true);
+      return;
+    }
+
+    if (!channelRef.current) return;
 
     const timer = setTimeout(async () => {
       const snap = buildSnapshot(Date.now());
@@ -2414,6 +2597,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           payload: snap,
         });
         setSupabaseLastSyncedAt(format(new Date(), 'HH:mm:ss'));
+        setHasPendingSync(false);
         // Persist to PostgreSQL ticktick_workspace table if available
         try {
           await client
@@ -2742,6 +2926,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Track browser online/offline state and flush pending cloud edits on reconnect
+  const syncWorkspaceRef = useRef(syncWorkspaceToSupabase);
+  syncWorkspaceRef.current = syncWorkspaceToSupabase;
+  const hasPendingSyncRef = useRef(hasPendingSync);
+  hasPendingSyncRef.current = hasPendingSync;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+    const handleOnline = async () => {
+      setIsOnline(true);
+      if (getSupabaseClient() && hasPendingSyncRef.current) {
+        await pullWorkspaceFromSupabase({ silent: true });
+        const res = await syncWorkspaceRef.current();
+        if (res.ok) {
+          setHasPendingSync(false);
+          pushToast({
+            title: 'Back online — pending edits synced',
+            kind: 'success',
+          });
+        }
+      }
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [pullWorkspaceFromSupabase, pushToast]);
+
   const value = useMemo<AppContextValue>(
     () => ({
       activeModule,
@@ -2782,6 +2999,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       toggleTaskStatus,
       deleteTask,
       restoreTask,
+      emptyTrash,
       duplicateTask,
       addSubtask,
       toggleSubtask,
@@ -2807,6 +3025,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addHabit,
       updateHabit,
       toggleHabitDate,
+      toggleHabitSkip,
       deleteHabitLog,
       clearHabitLogs,
       deleteHabit,
@@ -2842,6 +3061,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTheme,
       resetDemoWorkspace,
       clearAllWorkspaceData,
+      exportBackupJson,
+      exportTasksCsv,
+      importBackupJson,
       activeReminder,
       dismissActiveReminder,
       snoozeActiveReminder,
@@ -2852,6 +3074,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       supabaseUserEmail,
       supabaseLastSyncedAt,
       supabaseErrorMessage,
+      isOnline,
+      hasPendingSync,
       connectSupabase,
       disconnectSupabase,
       syncWorkspaceToSupabase,
@@ -2901,6 +3125,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       supabaseUserEmail,
       supabaseLastSyncedAt,
       supabaseErrorMessage,
+      isOnline,
+      hasPendingSync,
     ]
   );
 

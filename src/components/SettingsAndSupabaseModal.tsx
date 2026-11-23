@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -45,9 +45,14 @@ export const SettingsAndSupabaseModal: React.FC = () => {
     setTheme,
     resetDemoWorkspace,
     clearAllWorkspaceData,
+    exportBackupJson,
+    exportTasksCsv,
+    importBackupJson,
     supabaseStatus,
     supabaseLastSyncedAt,
     supabaseErrorMessage,
+    isOnline,
+    hasPendingSync,
     connectSupabase,
     disconnectSupabase,
     syncWorkspaceToSupabase,
@@ -59,6 +64,21 @@ export const SettingsAndSupabaseModal: React.FC = () => {
   const [sbAnonKey, setSbAnonKey] = useState(currentCfg.anonKey);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [notifDiag, setNotifDiag] = useState<NotificationDiagnostic | null>(null);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleImportBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      if (text) {
+        importBackupJson(text);
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
 
   useEffect(() => {
     if (isSettingsOpen) {
@@ -345,6 +365,48 @@ export const SettingsAndSupabaseModal: React.FC = () => {
                   <RefreshCw className="w-3.5 h-3.5" strokeWidth={1.75} /> Restore Demo
                 </button>
               </div>
+
+              {/* Backup & Data Portability (JSON / CSV) */}
+              <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2.5">
+                <div>
+                  <div className="text-xs font-semibold text-zinc-900">
+                    Backup & Data Portability (JSON / CSV)
+                  </div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    Export a complete workspace backup (tasks, lists, habits, focus logs) or download tasks as CSV. Importing merges safely without wiping existing data.
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={exportBackupJson}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" strokeWidth={1.75} /> Export JSON Backup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportTasksCsv}
+                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <DownloadCloud className="w-3.5 h-3.5" strokeWidth={1.75} /> Export Tasks (CSV)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => backupFileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" strokeWidth={1.75} /> Import JSON Backup
+                  </button>
+                  <input
+                    ref={backupFileInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleImportBackupFile}
+                    className="hidden"
+                  />
+                </div>
+              </div>
             </div>
           )}
 
@@ -397,12 +459,22 @@ export const SettingsAndSupabaseModal: React.FC = () => {
                   </span>
                   <span
                     className={`text-[10px] font-mono-num px-2 py-0.5 rounded-md font-semibold ${
-                      supabaseStatus === 'connected'
-                        ? 'bg-emerald-500/20 text-emerald-300'
-                        : 'bg-amber-500/20 text-amber-300'
+                      !isOnline
+                        ? 'bg-rose-500/20 text-rose-300'
+                        : hasPendingSync
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : supabaseStatus === 'connected'
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-500/20 text-amber-300'
                     }`}
                   >
-                    {supabaseStatus === 'connected' ? 'Connected (Live Sync)' : 'Local-First Mode'}
+                    {!isOnline
+                      ? 'Offline (Edits Queued)'
+                      : hasPendingSync
+                        ? 'Pending Sync...'
+                        : supabaseStatus === 'connected'
+                          ? 'Connected (Conflict-Safe Merge)'
+                          : 'Local-First Mode'}
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">

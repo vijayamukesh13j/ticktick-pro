@@ -69,6 +69,7 @@ export const TaskWorkspace: React.FC = () => {
     toggleTaskStatus,
     deleteTask,
     restoreTask,
+    emptyTrash,
     addList,
     updateList,
     addSection,
@@ -1019,6 +1020,24 @@ export const TaskWorkspace: React.FC = () => {
           )}
         </div>
       </header>
+
+      {/* Trash 30-Day Auto-Cleanup Banner & Empty Trash Action */}
+      {sidebarSelection.kind === 'smart' && sidebarSelection.id === 'trash' && (
+        <div className="px-3 sm:px-4 pt-2.5 pb-1 shrink-0">
+          <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-amber-50/80 border border-amber-200/80 text-xs text-amber-900">
+            <span>Items in Trash are automatically cleaned up after 30 days.</span>
+            {filteredTasks.length > 0 && (
+              <button
+                type="button"
+                onClick={emptyTrash}
+                className="px-2.5 py-1 rounded-md bg-rose-600 text-white text-[11px] font-semibold hover:bg-rose-700 shrink-0"
+              >
+                Empty Trash
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Smart NLP Quick-Add Bar */}
       {sidebarSelection.id !== 'trash' && sidebarSelection.id !== 'completed' && (

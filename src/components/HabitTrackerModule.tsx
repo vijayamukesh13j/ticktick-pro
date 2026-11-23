@@ -53,6 +53,7 @@ export const HabitTrackerModule: React.FC = () => {
     addHabit,
     updateHabit,
     toggleHabitDate,
+    toggleHabitSkip,
     deleteHabitLog,
     clearHabitLogs,
     deleteHabit,
@@ -71,6 +72,8 @@ export const HabitTrackerModule: React.FC = () => {
   const [goalType, setGoalType] = useState<Habit['goalType']>('check');
   const [targetValue, setTargetValue] = useState(1);
   const [unit, setUnit] = useState('times');
+  const [frequencyType, setFrequencyType] = useState<Habit['frequencyType']>('daily');
+  const [frequencyCount, setFrequencyCount] = useState<number>(7);
 
   // Habit Log Filter State
   const [habitLogRange, setHabitLogRange] = useState<'all' | '7days' | '30days'>('all');
@@ -119,14 +122,24 @@ export const HabitTrackerModule: React.FC = () => {
     let streak = 0;
     for (let i = 0; i < 60; i++) {
       const dStr = format(subDays(today, i), 'yyyy-MM-dd');
-      if (habit.logs[dStr]?.completed) {
+      const entry = habit.logs[dStr];
+      if (entry?.completed) {
         streak++;
+      } else if (entry?.skipped) {
+        // Rest / Skip days bridge streaks without resetting them
+        continue;
       } else if (i > 0) {
         break;
       }
     }
     return streak;
   };
+
+  const getWeeklyCompletedCount = (habit: Habit): number =>
+    last7Days.reduce((acc, d) => {
+      const dStr = format(d, 'yyyy-MM-dd');
+      return acc + (habit.logs[dStr]?.completed ? 1 : 0);
+    }, 0);
 
   const selectedHabit =
     habits.find((h) => h.id === selectedHabitId) ||
@@ -142,12 +155,15 @@ export const HabitTrackerModule: React.FC = () => {
     setGoalType(habit.goalType);
     setTargetValue(habit.targetValue);
     setUnit(habit.unit);
+    setFrequencyType(habit.frequencyType || 'daily');
+    setFrequencyCount(habit.frequencyCount || 7);
     setShowNewModal(true);
   };
 
   const handleCreateHabit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    const resolvedFreqCount = frequencyType === 'daily' ? 7 : Math.max(1, Math.min(7, frequencyCount));
     if (editingHabitId) {
       updateHabit(editingHabitId, {
         name: name.trim(),
@@ -155,6 +171,8 @@ export const HabitTrackerModule: React.FC = () => {
         icon,
         color,
         section,
+        frequencyType,
+        frequencyCount: resolvedFreqCount,
         goalType,
         targetValue: goalType === 'check' ? 1 : targetValue,
         unit: goalType === 'check' ? 'times' : unit,
@@ -166,9 +184,9 @@ export const HabitTrackerModule: React.FC = () => {
         icon,
         color,
         section,
-        frequencyType: 'daily',
+        frequencyType,
         frequencyDays: [0, 1, 2, 3, 4, 5, 6],
-        frequencyCount: 7,
+        frequencyCount: resolvedFreqCount,
         goalType,
         targetValue: goalType === 'check' ? 1 : targetValue,
         unit: goalType === 'check' ? 'times' : unit,
@@ -177,6 +195,8 @@ export const HabitTrackerModule: React.FC = () => {
     }
     setName('');
     setQuote('');
+    setFrequencyType('daily');
+    setFrequencyCount(7);
     setEditingHabitId(null);
     setShowNewModal(false);
   };
@@ -485,8 +505,9 @@ export const HabitTrackerModule: React.FC = () => {
                               const isTodayCol = dStr === todayStr;
                               const entry = habit.logs[dStr];
                               const isCompleted = entry?.completed;
+                              const isSkipped = Boolean(entry?.skipped);
                               const partialPct =
-                                habit.goalType === 'quantified' && entry
+                                habit.goalType === 'quantified' && entry && !isSkipped
                                   ? Math.min(100, Math.round((entry.value / habit.targetValue) * 100))
                                   : isCompleted
                                     ? 100
@@ -505,32 +526,48 @@ export const HabitTrackerModule: React.FC = () => {
                                       e.stopPropagation();
                                       toggleHabitDate(habit.id, dStr);
                                     }}
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      toggleHabitSkip(habit.id, dStr);
+                                    }}
                                     title={
-                                      entry
-                                        ? `${entry.value}/${habit.targetValue} ${habit.unit}`
-                                        : 'Click to check in'
+                                      isSkipped
+                                        ? 'Rest / Skip day (streak preserved) — click to check in or right-click to clear'
+                                        : entry
+                                          ? `${entry.value}/${habit.targetValue} ${habit.unit} (right-click to mark Rest day)`
+                                          : 'Click to check in, right-click to mark Rest day'
                                     }
                                     style={{
                                       backgroundColor: isCompleted
                                         ? habit.color
-                                        : partialPct > 0
-                                          ? `${habit.color}22`
+                                        : isSkipped
+                                          ? '#fef3c7'
+                                          : partialPct > 0
+                                            ? `${habit.color}22`
+                                            : undefined,
+                                      borderColor: isSkipped
+                                        ? '#f59e0b'
+                                        : isCompleted || partialPct > 0
+                                          ? habit.color
                                           : undefined,
-                                      borderColor:
-                                        isCompleted || partialPct > 0 ? habit.color : undefined,
                                     }}
                                     className={`w-7 h-7 rounded-full border flex items-center justify-center text-[10px] font-mono-num font-bold transition-all duration-150 ${
                                       isCompleted
                                         ? 'text-white shadow-2xs'
-                                        : partialPct > 0
-                                          ? 'text-zinc-900'
-                                          : isTodayCol
-                                            ? 'border-blue-400/80 bg-white hover:border-blue-600 text-zinc-400'
-                                            : 'border-zinc-200/90 hover:border-zinc-400 text-zinc-300'
+                                        : isSkipped
+                                          ? 'border-dashed text-amber-700'
+                                          : partialPct > 0
+                                            ? 'text-zinc-900'
+                                            : isTodayCol
+                                              ? 'border-blue-400/80 bg-white hover:border-blue-600 text-zinc-400'
+                                              : 'border-zinc-200/90 hover:border-zinc-400 text-zinc-300'
                                     }`}
                                   >
                                     {isCompleted ? (
                                       <Check className="w-3.5 h-3.5 stroke-[2.75] animate-check" />
+                                    ) : isSkipped ? (
+                                      '—'
                                     ) : partialPct > 0 ? (
                                       `${partialPct}%`
                                     ) : (
@@ -623,23 +660,37 @@ export const HabitTrackerModule: React.FC = () => {
             </div>
             <div className="p-3.5 rounded-xl bg-white border border-zinc-200/80">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                Total Check-ins
+                {selectedHabit.frequencyType === 'weekly_count' ? 'Weekly Goal' : 'Total Check-ins'}
               </div>
               <div className="text-xl font-bold font-mono-num text-emerald-600 mt-1 flex items-center gap-1.5">
                 <Award className="w-4 h-4" strokeWidth={1.75} />
-                {Object.values(selectedHabit.logs).filter((l) => l.completed).length} Days
+                {selectedHabit.frequencyType === 'weekly_count'
+                  ? `${getWeeklyCompletedCount(selectedHabit)}/${selectedHabit.frequencyCount || 7} this wk`
+                  : `${Object.values(selectedHabit.logs).filter((l) => l.completed).length} Days`}
               </div>
             </div>
           </div>
 
           {/* Add Mood & Thought Log for Today */}
           <div className="p-4 rounded-xl bg-white border border-zinc-200/80 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5 font-mono-num">
                 <Sparkles className="w-3.5 h-3.5 text-zinc-600" strokeWidth={1.75} />
                 Today ({todayStr})
               </span>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleHabitSkip(selectedHabit.id, todayStr)}
+                  title="Mark today as a Rest/Skip day without breaking your streak"
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border transition-colors ${
+                    selectedHabit.logs[todayStr]?.skipped
+                      ? 'bg-amber-100 border-amber-300 text-amber-800'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-amber-50 hover:text-amber-700'
+                  }`}
+                >
+                  {selectedHabit.logs[todayStr]?.skipped ? 'Rest Day ✓' : 'Rest Day'}
+                </button>
                 {selectedHabit.logs[todayStr] && (
                   <button
                     type="button"
@@ -947,6 +998,61 @@ export const HabitTrackerModule: React.FC = () => {
             </div>
 
             {/* Tracking Mode: Simple Check-in vs Preset Count/Measure */}
+            {/* Flexible Frequency Target (Daily vs X days/week) */}
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-zinc-600">
+                Frequency Goal
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrequencyType('daily');
+                    setFrequencyCount(7);
+                  }}
+                  className={`px-3 py-2 rounded-lg border text-xs font-semibold text-left transition-colors ${
+                    frequencyType === 'daily'
+                      ? 'border-zinc-900 bg-zinc-900 text-white'
+                      : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  Every Day (7x/wk)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrequencyType('weekly_count');
+                    if (frequencyCount >= 7) setFrequencyCount(3);
+                  }}
+                  className={`px-3 py-2 rounded-lg border text-xs font-semibold text-left transition-colors ${
+                    frequencyType === 'weekly_count'
+                      ? 'border-zinc-900 bg-zinc-900 text-white'
+                      : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  Flexible (X days/wk)
+                </button>
+              </div>
+              {frequencyType === 'weekly_count' && (
+                <div className="flex items-center gap-1.5 pt-1">
+                  {[1, 2, 3, 4, 5, 6].map((cnt) => (
+                    <button
+                      key={cnt}
+                      type="button"
+                      onClick={() => setFrequencyCount(cnt)}
+                      className={`flex-1 py-1.5 rounded-md border text-xs font-mono-num font-semibold transition-colors ${
+                        frequencyCount === cnt
+                          ? 'bg-zinc-900 text-white border-zinc-900'
+                          : 'bg-zinc-50 text-zinc-600 border-zinc-200 hover:bg-zinc-100'
+                      }`}
+                    >
+                      {cnt}x
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2.5">
               <label className="block text-xs font-medium text-zinc-600">
                 How do you want to track it?

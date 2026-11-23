@@ -168,6 +168,7 @@ export interface CustomFilter {
 export interface HabitLogEntry {
   value: number;
   completed: boolean;
+  skipped?: boolean; // Rest / Skip day that preserves streaks
   note?: string;
   mood?: 'great' | 'good' | 'neutral' | 'tired' | 'stressed';
   timestamp: string;

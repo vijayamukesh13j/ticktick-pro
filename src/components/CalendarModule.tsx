@@ -46,6 +46,7 @@ export const CalendarModule: React.FC = () => {
     addTask,
     updateTask,
     toggleTaskStatus,
+    pushToast,
     calendarSubscriptions,
     addCalendarSubscription,
     toggleCalendarSubscription,
@@ -66,6 +67,65 @@ export const CalendarModule: React.FC = () => {
   const [expandedDayDate, setExpandedDayDate] = useState<string | null>(null);
   const [expandedDayNewTitle, setExpandedDayNewTitle] = useState('');
   const [selectedCellDate, setSelectedCellDate] = useState<string | null>(null);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+
+  const handleDragStartTask = (e: React.DragEvent, taskId: string) => {
+    e.stopPropagation();
+    setDraggedTaskId(taskId);
+    e.dataTransfer.setData('text/plain', taskId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEndTask = () => {
+    setDraggedTaskId(null);
+    setDragOverTarget(null);
+  };
+
+  const handleDropOnTarget = (e: React.DragEvent, dateStr: string, hour?: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
+    setDraggedTaskId(null);
+    setDragOverTarget(null);
+    if (!taskId) return;
+    const targetTask = tasks.find((t) => t.id === taskId);
+    if (!targetTask) return;
+
+    if (typeof hour === 'number') {
+      const hrStr = `${String(hour).padStart(2, '0')}:00`;
+      updateTask(
+        taskId,
+        {
+          dueDate: dateStr,
+          startDate: dateStr,
+          startTime: hrStr,
+          isAllDay: false,
+          durationMinutes: targetTask.durationMinutes || 60,
+        },
+        `Time-blocked onto ${dateStr} at ${hrStr}`
+      );
+      pushToast({
+        title: `Time-blocked for ${dateStr} at ${hrStr}`,
+        description: targetTask.title,
+        kind: 'success',
+      });
+    } else {
+      updateTask(
+        taskId,
+        {
+          dueDate: dateStr,
+          startDate: dateStr,
+        },
+        `Rescheduled to ${dateStr}`
+      );
+      pushToast({
+        title: `Rescheduled to ${dateStr}`,
+        description: targetTask.title,
+        kind: 'success',
+      });
+    }
+  };
 
   const today = startOfToday();
   const todayStr = format(today, 'yyyy-MM-dd');
@@ -343,6 +403,17 @@ export const CalendarModule: React.FC = () => {
                       <div
                         key={dateStr}
                         data-testid={`calendar-day-${dateStr}`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverTarget !== `day-${dateStr}`) {
+                            setDragOverTarget(`day-${dateStr}`);
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverTarget === `day-${dateStr}`) setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => handleDropOnTarget(e, dateStr)}
                         onClick={() => {
                           if (
                             (typeof window !== 'undefined' && window.innerWidth < 640) ||
@@ -354,11 +425,13 @@ export const CalendarModule: React.FC = () => {
                           }
                         }}
                         className={`group min-h-[78px] sm:min-h-[112px] p-1.5 border-b border-r border-zinc-200/60 flex flex-col cursor-pointer transition-colors ${
-                          !isCurrentMonth
-                            ? 'bg-zinc-50/60 text-zinc-400'
-                            : isWeekend
-                              ? 'bg-zinc-50/25 hover:bg-zinc-50/70'
-                              : 'bg-white hover:bg-zinc-50/50'
+                          dragOverTarget === `day-${dateStr}`
+                            ? 'bg-blue-50/80 ring-2 ring-inset ring-blue-500/60'
+                            : !isCurrentMonth
+                              ? 'bg-zinc-50/60 text-zinc-400'
+                              : isWeekend
+                                ? 'bg-zinc-50/25 hover:bg-zinc-50/70'
+                                : 'bg-white hover:bg-zinc-50/50'
                         }`}
                       >
                         {/* Cell Top Row: Date Number + Quiet Task Count / Quick Add */}
@@ -471,13 +544,16 @@ export const CalendarModule: React.FC = () => {
                             return (
                               <div
                                 key={task.id}
+                                draggable
+                                onDragStart={(e) => handleDragStartTask(e, task.id)}
+                                onDragEnd={handleDragEndTask}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setSelectedCellDate(dateStr);
                                   setSelectedTaskId(task.id);
                                 }}
                                 style={{ borderLeftColor: accentColor }}
-                                className={`h-[21px] px-1.5 rounded-[4px] border-l-[2.5px] text-[11px] leading-none flex items-center gap-1.5 transition-colors ${
+                                className={`h-[21px] px-1.5 rounded-[4px] border-l-[2.5px] text-[11px] leading-none flex items-center gap-1.5 transition-colors cursor-grab active:cursor-grabbing ${
                                   isSelectedHere
                                     ? 'bg-blue-50/95 text-blue-950 ring-1 ring-blue-500/30 font-semibold'
                                     : isDone
@@ -706,8 +782,24 @@ export const CalendarModule: React.FC = () => {
                               return (
                                 <div
                                   key={`${dStr}-${hr}`}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = 'move';
+                                    const key = `slot-${dStr}-${hr}`;
+                                    if (dragOverTarget !== key) setDragOverTarget(key);
+                                  }}
+                                  onDragLeave={() => {
+                                    if (dragOverTarget === `slot-${dStr}-${hr}`) {
+                                      setDragOverTarget(null);
+                                    }
+                                  }}
+                                  onDrop={(e) => handleDropOnTarget(e, dStr, hr)}
                                   onClick={() => setQuickCellDate(dStr)}
-                                  className="p-1 border-r border-zinc-100 hover:bg-zinc-50/60 space-y-1 cursor-pointer min-w-0"
+                                  className={`p-1 border-r border-zinc-100 space-y-1 cursor-pointer min-w-0 transition-colors ${
+                                    dragOverTarget === `slot-${dStr}-${hr}`
+                                      ? 'bg-blue-50/80 ring-2 ring-inset ring-blue-500/60'
+                                      : 'hover:bg-zinc-50/60'
+                                  }`}
                                 >
                                   {slotEvents.map((ev) => (
                                     <div
@@ -728,13 +820,16 @@ export const CalendarModule: React.FC = () => {
                                     return (
                                       <div
                                         key={t.id}
+                                        draggable
+                                        onDragStart={(e) => handleDragStartTask(e, t.id)}
+                                        onDragEnd={handleDragEndTask}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setSelectedCellDate(dStr);
                                           setSelectedTaskId(t.id);
                                         }}
                                         style={{ borderLeftColor: accentColor }}
-                                        className={`px-2 py-1 rounded-[4px] border border-l-[3px] text-[11px] font-medium cursor-pointer transition-colors ${
+                                        className={`px-2 py-1 rounded-[4px] border border-l-[3px] text-[11px] font-medium cursor-grab active:cursor-grabbing transition-colors ${
                                           isSelectedHere
                                             ? 'bg-blue-50 border-blue-300 text-blue-950'
                                             : t.priority === 5
@@ -939,13 +1034,16 @@ export const CalendarModule: React.FC = () => {
                   </div>
                 </div>
                 <p className="text-[11px] text-zinc-500 mb-3">
-                  Schedule any undated task to time-block it onto your active calendar date.
+                  Drag any undated task onto a calendar day or hour slot, or click to schedule.
                 </p>
                 <div className="space-y-2 overflow-y-auto flex-1">
                   {unscheduledTasks.map((t) => (
                     <div
                       key={t.id}
-                      className="p-2.5 rounded-lg bg-white border border-zinc-200/80 space-y-2"
+                      draggable
+                      onDragStart={(e) => handleDragStartTask(e, t.id)}
+                      onDragEnd={handleDragEndTask}
+                      className="p-2.5 rounded-lg bg-white border border-zinc-200/80 space-y-2 cursor-grab active:cursor-grabbing hover:border-zinc-300 transition-colors"
                     >
                       <div className="text-xs font-medium text-zinc-800">{t.title}</div>
                       <button
