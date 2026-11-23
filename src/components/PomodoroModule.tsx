@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { format, subDays } from 'date-fns';
+import { format } from 'date-fns';
 import {
   CheckCircle2,
   Clock,
@@ -15,6 +15,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { pruneOldFocusSessions } from '../utils/focusLogs';
 import { WHITE_NOISE_OPTIONS } from '../utils/soundEngine';
 import { UiIcon } from './UiIcon';
 
@@ -55,18 +56,21 @@ export const PomodoroModule: React.FC = () => {
   const [showPomoSettings, setShowPomoSettings] = useState(false);
   const [mobileTab, setMobileTab] = useState<'timer' | 'history'>('timer');
 
-  // Focus Log Filter States
-  const [logRangeFilter, setLogRangeFilter] = useState<'all' | 'today' | '7days'>('all');
+  // Focus Log Filter States (logs & overview only retain the last 7 days)
+  const [logRangeFilter, setLogRangeFilter] = useState<'7days' | 'today'>('7days');
   const [logModeFilter, setLogModeFilter] = useState<'all' | 'pomo' | 'stopwatch'>('all');
   const [logSearchQuery, setLogSearchQuery] = useState('');
 
+  const recentSessions = useMemo(
+    () => pruneOldFocusSessions(pomodoroSessions),
+    [pomodoroSessions]
+  );
+
   const filteredSessions = useMemo(() => {
     const todayPrefix = format(new Date(), 'yyyy-MM-dd');
-    const sevenDaysAgoPrefix = format(subDays(new Date(), 7), 'yyyy-MM-dd');
-    return pomodoroSessions.filter((sess) => {
+    return recentSessions.filter((sess) => {
       const dateStr = sess.startTime.slice(0, 10);
       if (logRangeFilter === 'today' && dateStr !== todayPrefix) return false;
-      if (logRangeFilter === '7days' && dateStr < sevenDaysAgoPrefix) return false;
       if (logModeFilter !== 'all' && sess.mode !== logModeFilter) return false;
       if (logSearchQuery.trim()) {
         const q = logSearchQuery.toLowerCase();
@@ -76,7 +80,7 @@ export const PomodoroModule: React.FC = () => {
       }
       return true;
     });
-  }, [pomodoroSessions, logRangeFilter, logModeFilter, logSearchQuery]);
+  }, [recentSessions, logRangeFilter, logModeFilter, logSearchQuery]);
 
   const openTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'trash');
 
@@ -97,9 +101,9 @@ export const PomodoroModule: React.FC = () => {
       : (stopwatchSeconds % 1500) / 1500;
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const todaySessions = pomodoroSessions.filter((s) => s.startTime.startsWith(todayStr));
+  const todaySessions = recentSessions.filter((s) => s.startTime.startsWith(todayStr));
   const todayFocusMinutes = todaySessions.reduce((acc, s) => acc + s.durationMinutes, 0);
-  const totalFocusMinutes = pomodoroSessions.reduce((acc, s) => acc + s.durationMinutes, 0);
+  const totalFocusMinutes = recentSessions.reduce((acc, s) => acc + s.durationMinutes, 0);
 
   const circleRadius = 110;
   const circumference = 2 * Math.PI * circleRadius;
@@ -132,7 +136,7 @@ export const PomodoroModule: React.FC = () => {
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            <span>Records & Stats ({pomodoroSessions.length})</span>
+            <span>Records & Stats ({recentSessions.length})</span>
           </button>
         </div>
       </div>
@@ -507,8 +511,9 @@ export const PomodoroModule: React.FC = () => {
       >
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-900 tracking-tight">
-              Focus Overview & Timeline
+            <h2 className="text-sm font-semibold text-zinc-900 tracking-tight flex items-center gap-1.5">
+              <span>Focus Overview & Timeline</span>
+              <span className="text-[10px] font-medium text-zinc-400">(Last 7 Days)</span>
             </h2>
             <p className="text-xs text-zinc-400 font-mono-num mt-0.5">
               Daily Goal: {todayFocusMinutes} / {preferences.dailyFocusMinutesGoal} mins
@@ -540,13 +545,13 @@ export const PomodoroModule: React.FC = () => {
             </div>
           </div>
           <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80">
-            <div className="text-[11px] font-medium text-zinc-500">Total Sessions</div>
+            <div className="text-[11px] font-medium text-zinc-500">7-Day Sessions</div>
             <div className="text-xl font-bold font-mono-num text-zinc-900 mt-1">
-              {pomodoroSessions.length}
+              {recentSessions.length}
             </div>
           </div>
           <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80">
-            <div className="text-[11px] font-medium text-zinc-500">Total Focus Duration</div>
+            <div className="text-[11px] font-medium text-zinc-500">7-Day Focus Duration</div>
             <div className="text-xl font-bold font-mono-num text-emerald-600 mt-1">
               {Math.floor(totalFocusMinutes / 60)}h {totalFocusMinutes % 60}m
             </div>
@@ -557,9 +562,9 @@ export const PomodoroModule: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center justify-between gap-2 mb-2">
             <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-              Focus Record Log ({filteredSessions.length}/{pomodoroSessions.length})
+              Focus Record Log ({filteredSessions.length}/{recentSessions.length})
             </h3>
-            {pomodoroSessions.length > 0 && (
+            {recentSessions.length > 0 && (
               <button
                 type="button"
                 onClick={clearPomodoroSessions}
@@ -577,9 +582,8 @@ export const PomodoroModule: React.FC = () => {
               <div className="inline-flex items-center bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/70">
                 {(
                   [
-                    ['all', 'All Dates'],
+                    ['7days', 'Last 7 Days'],
                     ['today', 'Today'],
-                    ['7days', '7 Days'],
                   ] as const
                 ).map(([id, label]) => (
                   <button

@@ -52,6 +52,7 @@ import {
   sendDeviceNotification,
 } from '../utils/notificationEngine';
 import { getNextOccurrenceDate } from '../utils/recurringTasks';
+import { pruneOldFocusSessions } from '../utils/focusLogs';
 
 const STORAGE_PREFIX = 'ticktick_pro_v2_';
 
@@ -309,7 +310,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
   const [habits, setHabits] = useState<Habit[]>(() => loadStored('habits', INITIAL_HABITS));
   const [pomodoroSessions, setPomodoroSessions] = useState<PomodoroSession[]>(() =>
-    loadStored('pomo_sessions', INITIAL_POMODORO_SESSIONS)
+    pruneOldFocusSessions(loadStored('pomo_sessions', INITIAL_POMODORO_SESSIONS))
   );
   const [countdowns, setCountdowns] = useState<CountdownItem[]>(() =>
     loadStored('countdowns', INITIAL_COUNTDOWNS)
@@ -610,7 +611,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           whiteNoiseUsed: activeWhiteNoise !== 'none' ? activeWhiteNoise : undefined,
         };
 
-        setPomodoroSessions((prev) => [session, ...prev]);
+        setPomodoroSessions((prev) => pruneOldFocusSessions([session, ...prev]));
 
         if (targetTask) {
           updateTaskRef.current(
@@ -842,7 +843,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       durationMinutes,
       note,
     };
-    setPomodoroSessions((prev) => [session, ...prev]);
+    setPomodoroSessions((prev) => pruneOldFocusSessions([session, ...prev]));
     if (taskId) {
       const target = tasks.find((t) => t.id === taskId);
       if (target) {
@@ -1595,7 +1596,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTags(INITIAL_TAGS);
     setCustomFilters(INITIAL_FILTERS);
     setHabits(INITIAL_HABITS);
-    setPomodoroSessions(INITIAL_POMODORO_SESSIONS);
+    setPomodoroSessions(pruneOldFocusSessions(INITIAL_POMODORO_SESSIONS));
     setCountdowns(INITIAL_COUNTDOWNS);
     setTemplates(INITIAL_TEMPLATES);
     setCalendarSubscriptions(INITIAL_CALENDAR_SUBSCRIPTIONS);
@@ -1862,8 +1863,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveStored('habits', snap.habits);
       }
       if (Array.isArray(snap.pomodoroSessions)) {
-        setPomodoroSessions(snap.pomodoroSessions);
-        saveStored('pomo_sessions', snap.pomodoroSessions);
+        const recentSessions = pruneOldFocusSessions(snap.pomodoroSessions);
+        setPomodoroSessions(recentSessions);
+        saveStored('pomo_sessions', recentSessions);
       }
       if (Array.isArray(snap.countdowns)) {
         setCountdowns(snap.countdowns);

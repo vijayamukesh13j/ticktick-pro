@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { format, subDays } from 'date-fns';
 import { Award, BarChart3, CheckCircle2, Flame, Timer, TrendingUp } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { pruneOldFocusSessions } from '../utils/focusLogs';
 
 export const StatisticsModule: React.FC = () => {
   const { tasks, habits, pomodoroSessions, preferences, lists } = useApp();
@@ -11,7 +12,11 @@ export const StatisticsModule: React.FC = () => {
   const completionRate =
     tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0;
 
-  const totalFocusMinutes = pomodoroSessions.reduce((acc, s) => acc + s.durationMinutes, 0);
+  const recentFocusSessions = useMemo(
+    () => pruneOldFocusSessions(pomodoroSessions),
+    [pomodoroSessions]
+  );
+  const totalFocusMinutes = recentFocusSessions.reduce((acc, s) => acc + s.durationMinutes, 0);
   const totalHabitCheckins = habits.reduce(
     (acc, h) => acc + Object.values(h.logs).filter((l) => l.completed).length,
     0
@@ -66,14 +71,14 @@ export const StatisticsModule: React.FC = () => {
 
           <div className="p-4 surface-card rounded-xl">
             <div className="flex items-center justify-between text-xs text-zinc-500">
-              <span>Focus Duration</span>
+              <span>Focus Duration (7d)</span>
               <Timer className="w-4 h-4 text-blue-600" strokeWidth={1.75} />
             </div>
             <div className="text-2xl font-bold font-mono-num text-zinc-900 mt-2">
               {Math.floor(totalFocusMinutes / 60)}h {totalFocusMinutes % 60}m
             </div>
             <div className="text-[11px] font-mono-num text-zinc-500 mt-1">
-              Across {pomodoroSessions.length} focus sessions
+              Across {recentFocusSessions.length} focus sessions
             </div>
           </div>
 
@@ -119,7 +124,7 @@ export const StatisticsModule: React.FC = () => {
             <div className="h-44 flex items-end justify-between gap-3 pt-4 px-2">
               {last7Days.map((d) => {
                 const dStr = format(d, 'yyyy-MM-dd');
-                const dayFocus = pomodoroSessions
+                const dayFocus = recentFocusSessions
                   .filter((s) => s.startTime.startsWith(dStr))
                   .reduce((a, b) => a + b.durationMinutes, 0);
                 const dayHabits = habits.filter((h) => h.logs[dStr]?.completed).length;
